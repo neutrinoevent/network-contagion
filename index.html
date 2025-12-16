@@ -280,17 +280,10 @@
     });
 
     // FIX: camera jump — animate ONLY x,y (+ keep ratio), and do it after a refresh.
-    renderer.on("clickNode", ({ node }) => {
-      const a = graph.getNodeAttributes(node);
-      inject(node);
+renderer.on("clickNode", ({ node }) => {
+  inject(node);
+});
 
-      // refresh first to keep Sigma bounds sane (prevents “shoot sideways” on some variants/devices)
-      renderer.refresh();
-
-      const cam = renderer.getCamera();
-      const { ratio } = cam.getState();
-      cam.animate({ x: a.x, y: a.y, ratio }, { duration: 380 });
-    });
 
     lastFrame = performance.now();
     accumulator = 0;
