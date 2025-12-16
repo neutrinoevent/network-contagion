@@ -14,9 +14,9 @@
       position: sticky; top:0; z-index: 10;
       backdrop-filter: blur(8px);
     }
-    #title { font-weight:700; letter-spacing:.2px; }
-    #controls { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
-    button {
+    #title { font-weight:750; letter-spacing:.2px; }
+    #controls { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; align-items:center; }
+    button, select {
       border:1px solid rgba(255,255,255,.15);
       background: rgba(255,255,255,.06);
       color:#e9ecff;
@@ -26,9 +26,23 @@
       cursor:pointer;
       touch-action: manipulation;
     }
+    select { padding:10px 10px; }
     button:active { transform: translateY(1px); }
-    #hint { opacity:.85; font-size: 12px; }
-    #container { flex:1; }
+    #hint { opacity:.85; font-size: 12px; max-width: 52ch; }
+    #container { flex:1; position: relative; }
+    #badge {
+      position: absolute; left: 12px; bottom: 12px;
+      background: rgba(255,255,255,.07);
+      border: 1px solid rgba(255,255,255,.12);
+      color: rgba(233,236,255,.92);
+      padding: 8px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      backdrop-filter: blur(8px);
+      user-select: none;
+      pointer-events: none;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -36,143 +50,403 @@
   <div id="topbar">
     <div>
       <div id="title">Network Contagion</div>
-      <div id="hint">Tap “Inject” • pinch/zoom • tap nodes</div>
+      <div id="hint">Tap nodes to inject • swipe left/right to change topology • pinch to change speed</div>
     </div>
     <div id="controls">
+      <select id="variant" aria-label="Network variant"></select>
+
+      <select id="mode" aria-label="Behavior mode">
+        <option value="viral">Viral</option>
+        <option value="meme">Meme</option>
+        <option value="panic">Panic</option>
+        <option value="trust">Trust</option>
+      </select>
+
       <button id="inject">⚡ Inject</button>
       <button id="contain">🛡️ Contain</button>
+      <button id="rewire">🧬 Rewire: OFF</button>
       <button id="reset">↺ Reset</button>
     </div>
   </div>
-  <div id="container"></div>
+
+  <div id="container">
+    <div id="badge">Speed: 1.0×</div>
+  </div>
 </div>
 
 <script type="module">
   import Graph from "https://cdn.jsdelivr.net/npm/graphology@0.25.4/+esm";
   import Sigma from "https://cdn.jsdelivr.net/npm/sigma@3.0.1/+esm";
 
-  // --- Visual palette (simple, corporate-slick)
   const COLORS = {
     calm:  "#6f7cff",
-    edge:  "rgba(180,190,255,0.14)",
     hot:   "#ff3b7a",
     warm:  "#ffb000",
     safe:  "#22e3a2",
-    dim:   "rgba(140,150,220,0.25)"
+    edge:  "rgba(180,190,255,0.14)",
+    edgeHot: "rgba(255,59,122,0.85)"
+  };
+
+  const BEHAVIORS = {
+    viral: { beta: 0.85, recover: 2.3, pulseDecay: 1.8, edgePulseDecay: 2.4 },
+    meme:  { beta: 0.55, recover: 5.0, pulseDecay: 1.1, edgePulseDecay: 2.0 },
+    panic: { beta: 1.15, recover: 3.0, pulseDecay: 2.2, edgePulseDecay: 2.8 },
+    trust: { beta: 0.35, recover: 7.5, pulseDecay: 0.9, edgePulseDecay: 1.6 }
   };
 
   const container = document.getElementById("container");
-  const injectBtn = document.getElementById("inject");
+  const badge = document.getElementById("badge");
+
+  const injectBtn  = document.getElementById("inject");
   const containBtn = document.getElementById("contain");
-  const resetBtn = document.getElementById("reset");
+  const resetBtn   = document.getElementById("reset");
+  const rewireBtn  = document.getElementById("rewire");
+  const modeSel    = document.getElementById("mode");
+  const varSel     = document.getElementById("variant");
 
-  // --- Load graph.json created by Python
-  const raw = await fetch("./graph.json").then(r => r.json());
+  let graph = null;
+  let renderer = null;
 
-  const graph = new Graph();
-  raw.nodes.forEach(n => graph.addNode(n.key, {
-    x: n.x, y: n.y,
-    size: n.size,
-    label: n.label,
-    color: COLORS.calm,
-    state: "S",     // S=Susceptible, I=Infected, R=Recovered
-    t: 0,           // timer for state transitions
-    pulse: 0
-  }));
-  raw.edges.forEach(e => graph.addEdge(e.source, e.target, { color: COLORS.edge, size: 1 }));
-
-  // --- Sigma renderer (WebGL, mobile-friendly)
-  const renderer = new Sigma(graph, container, {
-    renderLabels: false, // mobile performance
-    allowInvalidContainer: false,
-    defaultEdgeColor: COLORS.edge,
-    labelRenderedSizeThreshold: 9999
-  });
-
-  // --- Tap node to focus
-  renderer.on("clickNode", ({ node }) => {
-    renderer.getCamera().animate(graph.getNodeAttributes(node), { duration: 450 });
-    inject(node);
-  });
-
-  // --- SIR-ish dynamics (fast + pretty)
+  // ---- State
   let contained = false;
+  let rewiringEnabled = false;
+
+  let simulationSpeed = 1.0; // user-controlled
+  let lastFrame = performance.now();
+  let accumulator = 0;
+
+  // ---- Variants
+  const manifest = await fetch("./manifest.json").then(r => r.json());
+  const variants = manifest.variants;
+
+  variants.forEach((v, idx) => {
+    const opt = document.createElement("option");
+    opt.value = String(idx);
+    opt.textContent = `${v.label} (${v.nodes}n)`;
+    varSel.appendChild(opt);
+  });
+
+  function currentBehavior() {
+    return BEHAVIORS[modeSel.value] ?? BEHAVIORS.viral;
+  }
+
+  function edgeColorFromPulse(p) {
+    const a = Math.max(0, Math.min(1, p));
+    if (a <= 0.001) return COLORS.edge;
+    const hotA = 0.85;
+    const baseA = 0.14;
+    const alpha = baseA + (hotA - baseA) * a;
+    return `rgba(255,59,122,${alpha.toFixed(3)})`;
+  }
+
+  function setEdgePulse(u, v, strength=1.0) {
+    const eid = graph.edge(u, v) ?? graph.edge(v, u);
+    if (!eid) return;
+    graph.mergeEdgeAttributes(eid, { pulse: Math.max(graph.getEdgeAttribute(eid, "pulse") || 0, strength) });
+  }
 
   function inject(seed=null) {
     const start = seed ?? graph.nodes()[Math.floor(Math.random() * graph.order)];
-    graph.setNodeAttribute(start, "state", "I");
-    graph.setNodeAttribute(start, "t", 0);
-    graph.setNodeAttribute(start, "pulse", 1.0);
+    graph.mergeNodeAttributes(start, { state:"I", t:0, pulse:1.0 });
   }
 
   function resetAll() {
     graph.forEachNode((n, a) => {
-      graph.mergeNodeAttributes(n, { state:"S", t:0, pulse:0, color: COLORS.calm });
-    });
-    contained = false;
-  }
-
-  injectBtn.onclick = () => inject();
-  containBtn.onclick = () => { contained = !contained; containBtn.textContent = contained ? "🛡️ Containment: ON" : "🛡️ Contain"; };
-  resetBtn.onclick = () => { resetAll(); containBtn.textContent = "🛡️ Contain"; };
-
-  // --- Animation loop
-  // Tuning: keep it light to stay smooth on phones.
-  const dt = 1 / 60;
-  const beta = () => (contained ? 0.35 : 0.85); // spread rate
-  const recoverTime = 2.3;                      // seconds
-
-  function tick() {
-    // Spread step: infected nodes probabilistically infect neighbors
-    const newly = [];
-    graph.forEachNode((n, a) => {
-      if (a.state !== "I") return;
-      graph.forEachNeighbor(n, (m, am) => {
-        if (am.state !== "S") return;
-        if (Math.random() < beta() * dt) newly.push(m);
+      graph.mergeNodeAttributes(n, {
+        state:"S", t:0, pulse:0,
+        color: COLORS.calm,
+        size: a.baseSize ?? 3.0,
+        memory: 0,
+        resistance: 0
       });
     });
+    graph.forEachEdge((e, a) => {
+      graph.mergeEdgeAttributes(e, { pulse: 0, color: COLORS.edge });
+    });
+    contained = false;
+    containBtn.textContent = "🛡️ Contain";
+  }
 
-    newly.forEach(n => {
-      graph.setNodeAttribute(n, "state", "I");
-      graph.setNodeAttribute(n, "t", 0);
-      graph.setNodeAttribute(n, "pulse", 1.0);
+  function updateBadge() {
+    badge.textContent = `Speed: ${simulationSpeed.toFixed(1)}×`;
+  }
+
+  // ---- Load graph variant
+  async function loadVariant(idx) {
+    const v = variants[idx];
+    const data = await fetch(`./${v.file}`).then(r => r.json());
+
+    // Kill old renderer
+    if (renderer) renderer.kill();
+    renderer = null;
+    graph = null;
+
+    graph = new Graph();
+
+    data.nodes.forEach(n => graph.addNode(n.key, {
+      x: n.x, y: n.y,
+      baseSize: n.size,
+      size: n.size,
+      label: n.label,
+      color: COLORS.calm,
+      state: "S",
+      t: 0,
+      pulse: 0,
+      memory: 0,
+      resistance: 0,
+      community: n.community ?? 0,
+      centrality: n.centrality ?? 0
+    }));
+
+    data.edges.forEach(e => graph.addEdge(e.source, e.target, {
+      color: COLORS.edge,
+      size: 1,
+      pulse: 0,
+      weight: e.weight ?? 1.0,
+      type: e.type ?? "structural"
+    }));
+
+    renderer = new Sigma(graph, container, {
+      renderLabels: false,
+      allowInvalidContainer: false,
+      defaultEdgeColor: COLORS.edge,
+      labelRenderedSizeThreshold: 9999
     });
 
-    // Visual + recovery
-    graph.forEachNode((n, a) => {
-      let { state, t, pulse } = a;
-      t += dt;
-      pulse = Math.max(0, pulse - 1.8 * dt);
+    // Click node: focus + inject
+    renderer.on("clickNode", ({ node }) => {
+      renderer.getCamera().animate(graph.getNodeAttributes(node), { duration: 420 });
+      inject(node);
+    });
 
-      // Color logic
-      if (state === "S") {
-        graph.setNodeAttribute(n, "color", COLORS.calm);
-      } else if (state === "I") {
-        // Hot -> warm glow
-        graph.setNodeAttribute(n, "color", t < 0.6 ? COLORS.hot : COLORS.warm);
-        if (t > recoverTime) {
-          state = "R";
-          t = 0;
-        }
-      } else if (state === "R") {
-        graph.setNodeAttribute(n, "color", COLORS.safe);
+    // Instant wow
+    inject();
+  }
+
+  // init default
+  await loadVariant(0);
+
+  // ---- Controls
+  injectBtn.onclick = () => inject();
+
+  containBtn.onclick = () => {
+    contained = !contained;
+    containBtn.textContent = contained ? "🛡️ Containment: ON" : "🛡️ Contain";
+  };
+
+  rewireBtn.onclick = () => {
+    rewiringEnabled = !rewiringEnabled;
+    rewireBtn.textContent = rewiringEnabled ? "🧬 Rewire: ON" : "🧬 Rewire: OFF";
+  };
+
+  resetBtn.onclick = () => resetAll();
+
+  varSel.onchange = async () => {
+    const idx = Number(varSel.value);
+    await loadVariant(idx);
+  };
+
+  // ---- Mobile swipe to change variant
+  let touchStartX = 0;
+  let touchStartY = 0;
+
+  container.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) return;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+
+  container.addEventListener("touchend", async (e) => {
+    if (!touchStartX) return;
+    const endX = e.changedTouches[0].clientX;
+    const endY = e.changedTouches[0].clientY;
+    const dx = endX - touchStartX;
+    const dy = endY - touchStartY;
+    touchStartX = 0;
+
+    // horizontal swipe, ignore big vertical moves
+    if (Math.abs(dx) > 60 && Math.abs(dy) < 70) {
+      const cur = Number(varSel.value);
+      const next = dx < 0 ? (cur + 1) % variants.length : (cur - 1 + variants.length) % variants.length;
+      varSel.value = String(next);
+      await loadVariant(next);
+    }
+  }, { passive: true });
+
+  // ---- Pinch-to-speed (mobile)
+  let pinchStartDist = null;
+  let pinchStartSpeed = 1.0;
+
+  function dist2(t0, t1) {
+    const dx = t0.clientX - t1.clientX;
+    const dy = t0.clientY - t1.clientY;
+    return Math.sqrt(dx*dx + dy*dy);
+  }
+
+  container.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 2) {
+      pinchStartDist = dist2(e.touches[0], e.touches[1]);
+      pinchStartSpeed = simulationSpeed;
+    }
+  }, { passive: true });
+
+  container.addEventListener("touchmove", (e) => {
+    if (e.touches.length === 2 && pinchStartDist) {
+      const d = dist2(e.touches[0], e.touches[1]);
+      const ratio = d / pinchStartDist;
+      // map pinch ratio to speed, clamped
+      simulationSpeed = Math.max(0.2, Math.min(3.0, pinchStartSpeed * ratio));
+      updateBadge();
+    }
+  }, { passive: true });
+
+  container.addEventListener("touchend", (e) => {
+    if (e.touches.length < 2) pinchStartDist = null;
+  }, { passive: true });
+
+  // ---- Pinch-to-speed (desktop trackpad pinch often appears as ctrl+wheel)
+  container.addEventListener("wheel", (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    simulationSpeed = Math.max(0.2, Math.min(3.0, simulationSpeed + (-e.deltaY) * 0.002));
+    updateBadge();
+  }, { passive: false });
+
+  updateBadge();
+
+  // ---- Adaptive rewiring (lightweight + capped)
+  let rewireCooldown = 0;
+
+  function doAdaptiveRewire(dt) {
+    if (!rewiringEnabled) return;
+    rewireCooldown -= dt;
+    if (rewireCooldown > 0) return;
+    rewireCooldown = 0.25; // only try rewiring 4x/sec
+
+    // cap number of rewires per activation to keep it smooth
+    const maxRewires = 4;
+
+    let rewires = 0;
+    const infected = [];
+    graph.forEachNode((n, a) => { if (a.state === "I") infected.push(n); });
+
+    if (infected.length < 2) return;
+
+    for (let i = 0; i < infected.length && rewires < maxRewires; i++) {
+      const n = infected[Math.floor(Math.random() * infected.length)];
+      if (Math.random() > 0.30) continue; // only some infected nodes attempt
+
+      const edges = graph.edges(n);
+      if (edges.length < 2) continue;
+
+      // drop a random edge from n
+      const toDrop = edges[Math.floor(Math.random() * edges.length)];
+      const ext = graph.extremities(toDrop);
+      graph.dropEdge(toDrop);
+
+      // connect to another infected node (if possible)
+      const m = infected[Math.floor(Math.random() * infected.length)];
+      if (n !== m && !graph.hasEdge(n, m) && !graph.hasEdge(m, n)) {
+        graph.addEdge(n, m, { color: "rgba(255,85,255,0.35)", size: 1, pulse: 0, weight: 1.0, type: "adaptive" });
+        rewires += 1;
+      } else {
+        // if we couldn't add, restore the dropped edge
+        graph.addEdge(ext[0], ext[1], { color: COLORS.edge, size: 1, pulse: 0, weight: 1.0, type: "restored" });
       }
+    }
+  }
 
-      // Subtle size pulse on infection
-      const baseSize = 2.2;
-      const s = baseSize + (a.size - baseSize) + 2.2 * pulse;
-      graph.mergeNodeAttributes(n, { state, t, pulse, size: s });
-    });
+  // ---- Simulation (fixed step with speed multiplier)
+  const baseDt = 1 / 60;
 
-    renderer.refresh(); // fast enough at this node count
+  function tick(now) {
+    const elapsed = Math.min(0.05, (now - lastFrame) / 1000);
+    lastFrame = now;
+
+    // speed affects how quickly sim time advances
+    accumulator += elapsed * simulationSpeed;
+
+    while (accumulator >= baseDt) {
+      step(baseDt);
+      accumulator -= baseDt;
+    }
+
+    renderer.refresh();
     requestAnimationFrame(tick);
   }
 
-  // Start with an initial injection for instant wow
-  inject();
-  tick();
+  function step(dt) {
+    const { beta, recover, pulseDecay, edgePulseDecay } = currentBehavior();
+    const spread = contained ? beta * 0.45 : beta;
 
+    // Infect neighbors
+    const newly = [];
+    graph.forEachNode((n, a) => {
+      if (a.state !== "I") return;
+
+      graph.forEachNeighbor(n, (m, am) => {
+        if (am.state !== "S") return;
+
+        const resist = am.resistance ?? 0;
+        const effective = spread * (1 - resist);
+
+        if (Math.random() < effective * dt) {
+          newly.push([n, m]);
+        }
+      });
+    });
+
+    newly.forEach(([src, dst]) => {
+      graph.mergeNodeAttributes(dst, { state:"I", t:0, pulse:1.0 });
+      setEdgePulse(src, dst, 1.0);
+    });
+
+    // Node updates
+    graph.forEachNode((n, a) => {
+      let { state, t, pulse } = a;
+
+      t += dt;
+      pulse = Math.max(0, pulse - pulseDecay * dt);
+
+      if (state === "S") {
+        graph.setNodeAttribute(n, "color", COLORS.calm);
+      } else if (state === "I") {
+        graph.setNodeAttribute(n, "color", t < 0.6 ? COLORS.hot : COLORS.warm);
+
+        if (t > recover) {
+          const mem = (a.memory ?? 0) + 1;
+          const resistance = Math.min(0.8, mem * 0.10);
+          state = "R";
+          t = 0;
+          graph.mergeNodeAttributes(n, { memory: mem, resistance });
+        }
+      } else if (state === "R") {
+        graph.setNodeAttribute(n, "color", COLORS.safe);
+        // drift back to susceptible slowly (keeps system alive)
+        if (t > 8.0) { state = "S"; t = 0; }
+      }
+
+      const base = a.baseSize ?? 3.0;
+      const s = Math.min(base + 2.2 * pulse, base + 3.0);
+      graph.mergeNodeAttributes(n, { state, t, pulse, size: s });
+    });
+
+    // Edge pulse fade
+    graph.forEachEdge((e, a) => {
+      let p = a.pulse ?? 0;
+      if (p <= 0) {
+        if (a.color !== COLORS.edge && (a.type ?? "") !== "adaptive") graph.setEdgeAttribute(e, "color", COLORS.edge);
+        return;
+      }
+      p = Math.max(0, p - edgePulseDecay * dt);
+      graph.mergeEdgeAttributes(e, { pulse: p, color: edgeColorFromPulse(p) });
+    });
+
+    doAdaptiveRewire(dt);
+  }
+
+  requestAnimationFrame(tick);
 </script>
 </body>
 </html>
+
