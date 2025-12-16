@@ -250,12 +250,18 @@
       // avoid duplicates / bad edges from generation
       if (!graph.hasNode(e.source) || !graph.hasNode(e.target)) return;
       if (graph.hasEdge(e.source, e.target) || graph.hasEdge(e.target, e.source)) return;
+
       graph.addEdge(e.source, e.target, {
         color: COLORS.edge,
         size: 1,
         pulse: 0,
         weight: e.weight ?? 1.0,
-        type: e.type ?? "structural"
+
+        // IMPORTANT:
+        // Do NOT set edge attribute "type" here.
+        // Sigma treats it as a render-program key (e.g., "line", "arrow").
+        // Your JSON uses type values like "small_world" which crash Sigma.
+        kind: e.type ?? "structural"
       });
     });
 
@@ -377,10 +383,10 @@
 
       const m = infected[Math.floor(Math.random() * infected.length)];
       if (n !== m && !graph.hasEdge(n, m) && !graph.hasEdge(m, n)) {
-        graph.addEdge(n, m, { color: "rgba(255,85,255,0.35)", size: 1, pulse: 0, weight: 1.0, type: "adaptive" });
+        graph.addEdge(n, m, { color: "rgba(255,85,255,0.35)", size: 1, pulse: 0, weight: 1.0, kind: "adaptive" });
         rewires += 1;
       } else {
-        graph.addEdge(ext[0], ext[1], { color: COLORS.edge, size: 1, pulse: 0, weight: 1.0, type: "restored" });
+        graph.addEdge(ext[0], ext[1], { color: COLORS.edge, size: 1, pulse: 0, weight: 1.0, kind: "restored" });
       }
     }
   }
@@ -414,7 +420,6 @@
         String(e?.stack || e) +
         "\n\nTip: refresh the page. If this persists, we’ll harden the failing section."
       );
-      // keep loop alive but stopped
       rafId = requestAnimationFrame(tick);
     }
   }
@@ -479,7 +484,7 @@
     graph.forEachEdge((e, a) => {
       let p = a.pulse ?? 0;
       if (p <= 0) {
-        if (a.color !== COLORS.edge && (a.type ?? "") !== "adaptive") graph.setEdgeAttribute(e, "color", COLORS.edge);
+        if (a.color !== COLORS.edge && (a.kind ?? "") !== "adaptive") graph.setEdgeAttribute(e, "color", COLORS.edge);
         return;
       }
       p = Math.max(0, p - edgePulseDecay * dt);
@@ -518,4 +523,3 @@
 </script>
 </body>
 </html>
-
