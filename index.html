@@ -6,35 +6,37 @@
   <title>Network Contagion • Physics x Networks</title>
   <style>
     html, body { margin:0; height:100%; background:#05060a; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
-    #wrap { height:100%; display:flex; flex-direction:column; }
+    #wrap { height: 100%; display:flex; flex-direction:column; }
     #topbar {
-      display:flex; gap:10px; align-items:center; justify-content:space-between;
-      padding:12px 14px; color:#e9ecff;
-      background: linear-gradient(180deg, rgba(20,24,50,.9), rgba(5,6,10,.2));
-      position: sticky; top:0; z-index: 10;
+      display:flex; align-items:center; justify-content:space-between;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: linear-gradient(180deg, rgba(20,22,35,0.95), rgba(10,10,18,0.35));
+      backdrop-filter: blur(10px);
+      gap: 12px;
+    }
+    #title { color: rgba(233,236,255,0.95); font-weight: 750; letter-spacing: 0.3px; }
+    #hint { color: rgba(233,236,255,0.55); font-size: 12px; margin-top: 2px; }
+    #controls { display:flex; align-items:center; gap: 8px; flex-wrap: wrap; justify-content:flex-end; }
+    select, button {
+      -webkit-tap-highlight-color: transparent;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.06);
+      color: rgba(233,236,255,0.92);
+      padding: 10px 10px;
+      font-size: 13px;
+      outline: none;
       backdrop-filter: blur(8px);
     }
-    #title { font-weight:750; letter-spacing:.2px; }
-    #controls { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; align-items:center; }
-    button, select {
-      border:1px solid rgba(255,255,255,.15);
-      background: rgba(255,255,255,.06);
-      color:#e9ecff;
-      padding:10px 12px;
-      border-radius: 12px;
-      font-weight: 650;
-      cursor:pointer;
-      touch-action: manipulation;
-    }
-    select { padding:10px 10px; }
-    button:active { transform: translateY(1px); }
-    #hint { opacity:.85; font-size: 12px; max-width: 52ch; }
+    button { cursor: pointer; }
+    button:hover { background: rgba(255,255,255,0.10); }
     #container { flex:1; position: relative; }
     #badge {
       position: absolute; left: 12px; bottom: 12px;
-      background: rgba(255,255,255,.07);
-      border: 1px solid rgba(255,255,255,.12);
-      color: rgba(233,236,255,.92);
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: rgba(233,236,255,0.92);
       padding: 8px 10px;
       border-radius: 12px;
       font-size: 12px;
@@ -42,6 +44,18 @@
       user-select: none;
       pointer-events: none;
       white-space: nowrap;
+    }
+    #error {
+      position:absolute; left:12px; top:12px; right:12px;
+      padding:10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,120,120,0.35);
+      background: rgba(120,20,20,0.28);
+      color: rgba(255,220,220,0.95);
+      font-size: 12px;
+      display:none;
+      backdrop-filter: blur(10px);
+      white-space: pre-wrap;
     }
   </style>
 </head>
@@ -70,6 +84,7 @@
   </div>
 
   <div id="container">
+    <div id="error"></div>
     <div id="badge">Speed: 1.0×</div>
   </div>
 </div>
@@ -96,6 +111,7 @@
 
   const container = document.getElementById("container");
   const badge = document.getElementById("badge");
+  const errorBox = document.getElementById("error");
 
   const injectBtn  = document.getElementById("inject");
   const containBtn = document.getElementById("contain");
@@ -114,6 +130,20 @@
   let simulationSpeed = 1.0; // user-controlled
   let lastFrame = performance.now();
   let accumulator = 0;
+
+  // animation loop control (prevents “dead loop after an exception”)
+  let rafId = null;
+  let loopStarted = false;
+  let loadingVariant = false;
+
+  function showError(msg) {
+    errorBox.style.display = "block";
+    errorBox.textContent = msg;
+  }
+  function clearError() {
+    errorBox.style.display = "none";
+    errorBox.textContent = "";
+  }
 
   // ---- Variants
   const manifest = await fetch("./manifest.json").then(r => r.json());
@@ -140,17 +170,24 @@
   }
 
   function setEdgePulse(u, v, strength=1.0) {
+    if (!graph) return;
     const eid = graph.edge(u, v) ?? graph.edge(v, u);
     if (!eid) return;
-    graph.mergeEdgeAttributes(eid, { pulse: Math.max(graph.getEdgeAttribute(eid, "pulse") || 0, strength) });
+    graph.mergeEdgeAttributes(eid, {
+      pulse: Math.max(graph.getEdgeAttribute(eid, "pulse") || 0, strength)
+    });
   }
 
   function inject(seed=null) {
-    const start = seed ?? graph.nodes()[Math.floor(Math.random() * graph.order)];
+    if (!graph) return;
+    const nodes = graph.nodes();
+    if (!nodes.length) return;
+    const start = seed ?? nodes[Math.floor(Math.random() * nodes.length)];
     graph.mergeNodeAttributes(start, { state:"I", t:0, pulse:1.0 });
   }
 
   function resetAll() {
+    if (!graph) return;
     graph.forEachNode((n, a) => {
       graph.mergeNodeAttributes(n, {
         state:"S", t:0, pulse:0,
@@ -160,7 +197,7 @@
         resistance: 0
       });
     });
-    graph.forEachEdge((e, a) => {
+    graph.forEachEdge((e) => {
       graph.mergeEdgeAttributes(e, { pulse: 0, color: COLORS.edge });
     });
     contained = false;
@@ -171,16 +208,27 @@
     badge.textContent = `Speed: ${simulationSpeed.toFixed(1)}×`;
   }
 
-  // ---- Load graph variant
+  // ---- Load graph variant (safe against tick() running mid-swap)
   async function loadVariant(idx) {
+    clearError();
+    loadingVariant = true;
+
     const v = variants[idx];
     const data = await fetch(`./${v.file}`).then(r => r.json());
 
-    // Kill old renderer
-    if (renderer) renderer.kill();
+    // Pause the simulation logic while we swap internals
+    accumulator = 0;
+
+    // Kill old renderer safely
+    try {
+      if (renderer) renderer.kill();
+    } catch (e) {
+      // ignore
+    }
     renderer = null;
     graph = null;
 
+    // Build new graph
     graph = new Graph();
 
     data.nodes.forEach(n => graph.addNode(n.key, {
@@ -198,14 +246,20 @@
       centrality: n.centrality ?? 0
     }));
 
-    data.edges.forEach(e => graph.addEdge(e.source, e.target, {
-      color: COLORS.edge,
-      size: 1,
-      pulse: 0,
-      weight: e.weight ?? 1.0,
-      type: e.type ?? "structural"
-    }));
+    data.edges.forEach(e => {
+      // avoid duplicates / bad edges from generation
+      if (!graph.hasNode(e.source) || !graph.hasNode(e.target)) return;
+      if (graph.hasEdge(e.source, e.target) || graph.hasEdge(e.target, e.source)) return;
+      graph.addEdge(e.source, e.target, {
+        color: COLORS.edge,
+        size: 1,
+        pulse: 0,
+        weight: e.weight ?? 1.0,
+        type: e.type ?? "structural"
+      });
+    });
 
+    // Create sigma
     renderer = new Sigma(graph, container, {
       renderLabels: false,
       allowInvalidContainer: false,
@@ -213,38 +267,20 @@
       labelRenderedSizeThreshold: 9999
     });
 
-    // Click node: focus + inject
     renderer.on("clickNode", ({ node }) => {
       renderer.getCamera().animate(graph.getNodeAttributes(node), { duration: 420 });
       inject(node);
     });
 
+    // Reset timing so we don't get a huge dt spike
+    lastFrame = performance.now();
+    accumulator = 0;
+
     // Instant wow
     inject();
+
+    loadingVariant = false;
   }
-
-  // init default
-  await loadVariant(0);
-
-  // ---- Controls
-  injectBtn.onclick = () => inject();
-
-  containBtn.onclick = () => {
-    contained = !contained;
-    containBtn.textContent = contained ? "🛡️ Containment: ON" : "🛡️ Contain";
-  };
-
-  rewireBtn.onclick = () => {
-    rewiringEnabled = !rewiringEnabled;
-    rewireBtn.textContent = rewiringEnabled ? "🧬 Rewire: ON" : "🧬 Rewire: OFF";
-  };
-
-  resetBtn.onclick = () => resetAll();
-
-  varSel.onchange = async () => {
-    const idx = Number(varSel.value);
-    await loadVariant(idx);
-  };
 
   // ---- Mobile swipe to change variant
   let touchStartX = 0;
@@ -264,7 +300,6 @@
     const dy = endY - touchStartY;
     touchStartX = 0;
 
-    // horizontal swipe, ignore big vertical moves
     if (Math.abs(dx) > 60 && Math.abs(dy) < 70) {
       const cur = Number(varSel.value);
       const next = dx < 0 ? (cur + 1) % variants.length : (cur - 1 + variants.length) % variants.length;
@@ -294,7 +329,6 @@
     if (e.touches.length === 2 && pinchStartDist) {
       const d = dist2(e.touches[0], e.touches[1]);
       const ratio = d / pinchStartDist;
-      // map pinch ratio to speed, clamped
       simulationSpeed = Math.max(0.2, Math.min(3.0, pinchStartSpeed * ratio));
       updateBadge();
     }
@@ -318,39 +352,34 @@
   let rewireCooldown = 0;
 
   function doAdaptiveRewire(dt) {
-    if (!rewiringEnabled) return;
+    if (!rewiringEnabled || !graph) return;
     rewireCooldown -= dt;
     if (rewireCooldown > 0) return;
     rewireCooldown = 0.25; // only try rewiring 4x/sec
 
-    // cap number of rewires per activation to keep it smooth
     const maxRewires = 4;
-
     let rewires = 0;
+
     const infected = [];
     graph.forEachNode((n, a) => { if (a.state === "I") infected.push(n); });
-
     if (infected.length < 2) return;
 
     for (let i = 0; i < infected.length && rewires < maxRewires; i++) {
       const n = infected[Math.floor(Math.random() * infected.length)];
-      if (Math.random() > 0.30) continue; // only some infected nodes attempt
+      if (Math.random() > 0.30) continue;
 
       const edges = graph.edges(n);
       if (edges.length < 2) continue;
 
-      // drop a random edge from n
       const toDrop = edges[Math.floor(Math.random() * edges.length)];
       const ext = graph.extremities(toDrop);
       graph.dropEdge(toDrop);
 
-      // connect to another infected node (if possible)
       const m = infected[Math.floor(Math.random() * infected.length)];
       if (n !== m && !graph.hasEdge(n, m) && !graph.hasEdge(m, n)) {
         graph.addEdge(n, m, { color: "rgba(255,85,255,0.35)", size: 1, pulse: 0, weight: 1.0, type: "adaptive" });
         rewires += 1;
       } else {
-        // if we couldn't add, restore the dropped edge
         graph.addEdge(ext[0], ext[1], { color: COLORS.edge, size: 1, pulse: 0, weight: 1.0, type: "restored" });
       }
     }
@@ -360,36 +389,54 @@
   const baseDt = 1 / 60;
 
   function tick(now) {
-    const elapsed = Math.min(0.05, (now - lastFrame) / 1000);
-    lastFrame = now;
-
-    // speed affects how quickly sim time advances
-    accumulator += elapsed * simulationSpeed;
-
-    while (accumulator >= baseDt) {
-      step(baseDt);
-      accumulator -= baseDt;
+    // Always keep the loop alive, but don’t do work during swaps
+    if (loadingVariant || !graph || !renderer) {
+      rafId = requestAnimationFrame(tick);
+      return;
     }
 
-    renderer.refresh();
-    requestAnimationFrame(tick);
+    try {
+      const elapsed = Math.min(0.05, (now - lastFrame) / 1000);
+      lastFrame = now;
+
+      accumulator += elapsed * simulationSpeed;
+
+      while (accumulator >= baseDt) {
+        step(baseDt);
+        accumulator -= baseDt;
+      }
+
+      renderer.refresh();
+      rafId = requestAnimationFrame(tick);
+    } catch (e) {
+      showError(
+        "Simulation halted due to an error.\n\n" +
+        String(e?.stack || e) +
+        "\n\nTip: refresh the page. If this persists, we’ll harden the failing section."
+      );
+      // keep loop alive but stopped
+      rafId = requestAnimationFrame(tick);
+    }
   }
 
   function step(dt) {
     const { beta, recover, pulseDecay, edgePulseDecay } = currentBehavior();
     const spread = contained ? beta * 0.45 : beta;
 
-    // Infect neighbors
+    // Mobile-safety throttle: cap how many new infections can occur per step
+    const maxNewInfections = 220;
+
     const newly = [];
     graph.forEachNode((n, a) => {
       if (a.state !== "I") return;
+      if (newly.length >= maxNewInfections) return;
 
       graph.forEachNeighbor(n, (m, am) => {
+        if (newly.length >= maxNewInfections) return;
         if (am.state !== "S") return;
 
         const resist = am.resistance ?? 0;
         const effective = spread * (1 - resist);
-
         if (Math.random() < effective * dt) {
           newly.push([n, m]);
         }
@@ -401,7 +448,6 @@
       setEdgePulse(src, dst, 1.0);
     });
 
-    // Node updates
     graph.forEachNode((n, a) => {
       let { state, t, pulse } = a;
 
@@ -422,7 +468,6 @@
         }
       } else if (state === "R") {
         graph.setNodeAttribute(n, "color", COLORS.safe);
-        // drift back to susceptible slowly (keeps system alive)
         if (t > 8.0) { state = "S"; t = 0; }
       }
 
@@ -431,7 +476,6 @@
       graph.mergeNodeAttributes(n, { state, t, pulse, size: s });
     });
 
-    // Edge pulse fade
     graph.forEachEdge((e, a) => {
       let p = a.pulse ?? 0;
       if (p <= 0) {
@@ -445,7 +489,32 @@
     doAdaptiveRewire(dt);
   }
 
-  requestAnimationFrame(tick);
+  // ---- Controls
+  injectBtn.onclick = () => inject();
+
+  containBtn.onclick = () => {
+    contained = !contained;
+    containBtn.textContent = contained ? "🛡️ Containment: ON" : "🛡️ Contain";
+  };
+
+  rewireBtn.onclick = () => {
+    rewiringEnabled = !rewiringEnabled;
+    rewireBtn.textContent = rewiringEnabled ? "🧬 Rewire: ON" : "🧬 Rewire: OFF";
+  };
+
+  resetBtn.onclick = () => resetAll();
+
+  varSel.onchange = async () => {
+    const idx = Number(varSel.value);
+    await loadVariant(idx);
+  };
+
+  // init + start loop
+  await loadVariant(0);
+  if (!loopStarted) {
+    loopStarted = true;
+    rafId = requestAnimationFrame(tick);
+  }
 </script>
 </body>
 </html>
