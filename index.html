@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Network Contagion • Physics x Networks</title>
+  <style>
+    html, body { margin:0; height:100%; background:#05060a; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    #wrap { height:100%; display:flex; flex-direction:column; }
+    #topbar {
+      display:flex; gap:10px; align-items:center; justify-content:space-between;
+      padding:12px 14px; color:#e9ecff;
+      background: linear-gradient(180deg, rgba(20,24,50,.9), rgba(5,6,10,.2));
+      position: sticky; top:0; z-index: 10;
+      backdrop-filter: blur(8px);
+    }
+    #title { font-weight:700; letter-spacing:.2px; }
+    #controls { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+    button {
+      border:1px solid rgba(255,255,255,.15);
+      background: rgba(255,255,255,.06);
+      color:#e9ecff;
+      padding:10px 12px;
+      border-radius: 12px;
+      font-weight: 650;
+      cursor:pointer;
+      touch-action: manipulation;
+    }
+    button:active { transform: translateY(1px); }
+    #hint { opacity:.85; font-size: 12px; }
+    #container { flex:1; }
+  </style>
+</head>
+<body>
+<div id="wrap">
+  <div id="topbar">
+    <div>
+      <div id="title">Network Contagion</div>
+      <div id="hint">Tap “Inject” • pinch/zoom • tap nodes</div>
+    </div>
+    <div id="controls">
+      <button id="inject">⚡ Inject</button>
+      <button id="contain">🛡️ Contain</button>
+      <button id="reset">↺ Reset</button>
+    </div>
+  </div>
+  <div id="container"></div>
+</div>
+
+<script type="module">
+  import Graph from "https://cdn.jsdelivr.net/npm/graphology@0.25.4/+esm";
+  import Sigma from "https://cdn.jsdelivr.net/npm/sigma@3.0.1/+esm";
+
+  // --- Visual palette (simple, corporate-slick)
+  const COLORS = {
+    calm:  "#6f7cff",
+    edge:  "rgba(180,190,255,0.14)",
+    hot:   "#ff3b7a",
+    warm:  "#ffb000",
+    safe:  "#22e3a2",
+    dim:   "rgba(140,150,220,0.25)"
+  };
+
+  const container = document.getElementById("container");
+  const injectBtn = document.getElementById("inject");
+  const containBtn = document.getElementById("contain");
+  const resetBtn = document.getElementById("reset");
+
+  // --- Load graph.json created by Python
+  const raw = await fetch("./graph.json").then(r => r.json());
+
+  const graph = new Graph();
+  raw.nodes.forEach(n => graph.addNode(n.key, {
+    x: n.x, y: n.y,
+    size: n.size,
+    label: n.label,
+    color: COLORS.calm,
+    state: "S",     // S=Susceptible, I=Infected, R=Recovered
+    t: 0,           // timer for state transitions
+    pulse: 0
+  }));
+  raw.edges.forEach(e => graph.addEdge(e.source, e.target, { color: COLORS.edge, size: 1 }));
+
+  // --- Sigma renderer (WebGL, mobile-friendly)
+  const renderer = new Sigma(graph, container, {
+    renderLabels: false, // mobile performance
+    allowInvalidContainer: false,
+    defaultEdgeColor: COLORS.edge,
+    labelRenderedSizeThreshold: 9999
+  });
+
+  // --- Tap node to focus
+  renderer.on("clickNode", ({ node }) => {
+    renderer.getCamera().animate(graph.getNodeAttributes(node), { duration: 450 });
+    inject(node);
+  });
+
+  // --- SIR-ish dynamics (fast + pretty)
+  let contained = false;
+
+  function inject(seed=null) {
+    const start = seed ?? graph.nodes()[Math.floor(Math.random() * graph.order)];
+    graph.setNodeAttribute(start, "state", "I");
+    graph.setNodeAttribute(start, "t", 0);
+    graph.setNodeAttribute(start, "pulse", 1.0);
+  }
+
+  function resetAll() {
+    graph.forEachNode((n, a) => {
+      graph.mergeNodeAttributes(n, { state:"S", t:0, pulse:0, color: COLORS.calm });
+    });
+    contained = false;
+  }
+
+  injectBtn.onclick = () => inject();
+  containBtn.onclick = () => { contained = !contained; containBtn.textContent = contained ? "🛡️ Containment: ON" : "🛡️ Contain"; };
+  resetBtn.onclick = () => { resetAll(); containBtn.textContent = "🛡️ Contain"; };
+
+  // --- Animation loop
+  // Tuning: keep it light to stay smooth on phones.
+  const dt = 1 / 60;
+  const beta = () => (contained ? 0.35 : 0.85); // spread rate
+  const recoverTime = 2.3;                      // seconds
+
+  function tick() {
+    // Spread step: infected nodes probabilistically infect neighbors
+    const newly = [];
+    graph.forEachNode((n, a) => {
+      if (a.state !== "I") return;
+      graph.forEachNeighbor(n, (m, am) => {
+        if (am.state !== "S") return;
+        if (Math.random() < beta() * dt) newly.push(m);
+      });
+    });
+
+    newly.forEach(n => {
+      graph.setNodeAttribute(n, "state", "I");
+      graph.setNodeAttribute(n, "t", 0);
+      graph.setNodeAttribute(n, "pulse", 1.0);
+    });
+
+    // Visual + recovery
+    graph.forEachNode((n, a) => {
+      let { state, t, pulse } = a;
+      t += dt;
+      pulse = Math.max(0, pulse - 1.8 * dt);
+
+      // Color logic
+      if (state === "S") {
+        graph.setNodeAttribute(n, "color", COLORS.calm);
+      } else if (state === "I") {
+        // Hot -> warm glow
+        graph.setNodeAttribute(n, "color", t < 0.6 ? COLORS.hot : COLORS.warm);
+        if (t > recoverTime) {
+          state = "R";
+          t = 0;
+        }
+      } else if (state === "R") {
+        graph.setNodeAttribute(n, "color", COLORS.safe);
+      }
+
+      // Subtle size pulse on infection
+      const baseSize = 2.2;
+      const s = baseSize + (a.size - baseSize) + 2.2 * pulse;
+      graph.mergeNodeAttributes(n, { state, t, pulse, size: s });
+    });
+
+    renderer.refresh(); // fast enough at this node count
+    requestAnimationFrame(tick);
+  }
+
+  // Start with an initial injection for instant wow
+  inject();
+  tick();
+
+</script>
+</body>
+</html>
