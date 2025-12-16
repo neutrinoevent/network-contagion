@@ -31,7 +31,7 @@
     }
     button { cursor: pointer; }
     button:hover { background: rgba(255,255,255,0.10); }
-    #container { flex:1; position: relative; }
+    #container { flex:1; position: relative; min-height: 200px; }
     #badge {
       position: absolute; left: 12px; bottom: 12px;
       background: rgba(255,255,255,0.07);
@@ -64,7 +64,7 @@
   <div id="topbar">
     <div>
       <div id="title">Network Contagion</div>
-      <div id="hint">Tap nodes to inject • pinch to change speed</div>
+      <div id="hint">Tap nodes to inject • pinch / ctrl+wheel to change speed</div>
     </div>
     <div id="controls">
       <select id="variant" aria-label="Network variant"></select>
@@ -101,13 +101,12 @@
     edge:  "rgba(180,190,255,0.14)"
   };
 
-  // Tuned down betas for “readable” spread on mobile.
-  // (You can still speed up via pinch-to-speed.)
+  // Lower baselines + we ALSO normalize by graph density at runtime.
   const BEHAVIORS = {
-    viral: { beta: 0.70, recover: 2.6, pulseDecay: 1.7, edgePulseDecay: 2.2 },
-    meme:  { beta: 0.45, recover: 5.5, pulseDecay: 1.05, edgePulseDecay: 1.9 },
-    panic: { beta: 0.95, recover: 3.2, pulseDecay: 2.0, edgePulseDecay: 2.6 },
-    trust: { beta: 0.28, recover: 8.0, pulseDecay: 0.9, edgePulseDecay: 1.5 }
+    viral: { beta: 0.45, recover: 2.8, pulseDecay: 1.7, edgePulseDecay: 2.1 },
+    meme:  { beta: 0.30, recover: 5.8, pulseDecay: 1.05, edgePulseDecay: 1.85 },
+    panic: { beta: 0.60, recover: 3.4, pulseDecay: 2.0, edgePulseDecay: 2.4 },
+    trust: { beta: 0.18, recover: 8.5, pulseDecay: 0.9, edgePulseDecay: 1.45 }
   };
 
   const container = document.getElementById("container");
@@ -128,14 +127,17 @@
   let contained = false;
   let rewiringEnabled = false;
 
-  let simulationSpeed = 1.0; // user-controlled
+  let simulationSpeed = 1.0;
   let lastFrame = performance.now();
   let accumulator = 0;
 
-  // animation loop control
   let rafId = null;
   let loopStarted = false;
   let loadingVariant = false;
+
+  // Density stats per loaded graph
+  let avgDegree = 6;      // updated on load
+  let degreeScale = 1.0;  // updated on load
 
   function showError(msg) {
     errorBox.style.display = "block";
@@ -146,22 +148,14 @@
     errorBox.textContent = "";
   }
 
-  // ---- Variants
-  const manifest = await fetch("./manifest.json").then(r => r.json());
-  const variants = manifest.variants;
-
-  variants.forEach((v, idx) => {
-    const opt = document.createElement("option");
-    opt.value = String(idx);
-    opt.textContent = `${v.label} (${v.nodes}n)`;
-    varSel.appendChild(opt);
-  });
+  function updateBadge() {
+    badge.textContent = `Speed: ${simulationSpeed.toFixed(1)}×`;
+  }
 
   function currentBehavior() {
     return BEHAVIORS[modeSel.value] ?? BEHAVIORS.viral;
   }
 
-  // Cheap edge “pulse” by alpha (no D3)
   function edgeColorFromPulse(p) {
     const a = Math.max(0, Math.min(1, p));
     if (a <= 0.001) return COLORS.edge;
@@ -202,15 +196,27 @@
     graph.forEachEdge((e) => {
       graph.mergeEdgeAttributes(e, { pulse: 0, color: COLORS.edge, size: 1 });
     });
+
     contained = false;
     containBtn.textContent = "🛡️ Contain";
+
+    // (optional) keep rewiring state as-is; comment out next 2 lines if you prefer reset to disable it
+    // rewiringEnabled = false;
+    // rewireBtn.textContent = "🧬 Rewire: OFF";
   }
 
-  function updateBadge() {
-    badge.textContent = `Speed: ${simulationSpeed.toFixed(1)}×`;
-  }
+  // ---- Variants
+  const manifest = await fetch("./manifest.json").then(r => r.json());
+  const variants = manifest.variants;
 
-  // ---- Load graph variant (safe against tick() running mid-swap)
+  variants.forEach((v, idx) => {
+    const opt = document.createElement("option");
+    opt.value = String(idx);
+    opt.textContent = `${v.label} (${v.nodes}n)`;
+    varSel.appendChild(opt);
+  });
+
+  // ---- Load graph variant
   async function loadVariant(idx) {
     clearError();
     loadingVariant = true;
@@ -245,16 +251,26 @@
       if (!graph.hasNode(e.source) || !graph.hasNode(e.target)) return;
       if (graph.hasEdge(e.source, e.target) || graph.hasEdge(e.target, e.source)) return;
 
+      // IMPORTANT: do NOT set edge attribute "type" (Sigma uses it as a WebGL program key)
       graph.addEdge(e.source, e.target, {
         color: COLORS.edge,
         size: 1,
         pulse: 0,
         weight: e.weight ?? 1.0,
-
-        // IMPORTANT: do not use "type" (Sigma treats it as a render-program key)
         kind: e.type ?? "structural"
       });
     });
+
+    // Compute density normalization:
+    // avgDegree = 2E/N (undirected) approximately, but graphology can compute directly.
+    let degSum = 0;
+    graph.forEachNode((n) => { degSum += graph.degree(n); });
+    avgDegree = degSum / Math.max(1, graph.order);
+
+    // We target “readable” spread around avgDegree ~ 6.
+    // Dense graphs => scale down beta, sparse graphs => scale up a bit (clamped).
+    degreeScale = 6 / Math.max(1, avgDegree);
+    degreeScale = Math.max(0.35, Math.min(1.35, degreeScale));
 
     renderer = new Sigma(graph, container, {
       renderLabels: false,
@@ -263,24 +279,24 @@
       labelRenderedSizeThreshold: 9999
     });
 
-renderer.on("clickNode", ({ node }) => {
-  const a = graph.getNodeAttributes(node);
-  const cam = renderer.getCamera();
-  const { ratio } = cam.getState();
+    // FIX: camera jump — animate ONLY x,y (+ keep ratio), and do it after a refresh.
+    renderer.on("clickNode", ({ node }) => {
+      const a = graph.getNodeAttributes(node);
+      inject(node);
 
-  cam.animate(
-    { x: a.x, y: a.y, ratio },
-    { duration: 420, absolute: true }
-  );
+      // refresh first to keep Sigma bounds sane (prevents “shoot sideways” on some variants/devices)
+      renderer.refresh();
 
-  inject(node);
-});
-
+      const cam = renderer.getCamera();
+      const { ratio } = cam.getState();
+      cam.animate({ x: a.x, y: a.y, ratio }, { duration: 380 });
+    });
 
     lastFrame = performance.now();
     accumulator = 0;
 
-    inject();
+    resetAll();
+    inject(); // instant “wow” seed
 
     loadingVariant = false;
   }
@@ -315,7 +331,7 @@ renderer.on("clickNode", ({ node }) => {
     if (e.touches.length < 2) pinchStartDist = null;
   }, { passive: true });
 
-  // ---- Pinch-to-speed (desktop trackpad pinch often appears as ctrl+wheel)
+  // ---- ctrl+wheel (desktop pinch)
   container.addEventListener("wheel", (e) => {
     if (!e.ctrlKey) return;
     e.preventDefault();
@@ -343,7 +359,7 @@ renderer.on("clickNode", ({ node }) => {
 
     for (let i = 0; i < infected.length && rewires < maxRewires; i++) {
       const n = infected[Math.floor(Math.random() * infected.length)];
-      if (Math.random() > 0.28) continue;
+      if (Math.random() > 0.25) continue;
 
       const edges = graph.edges(n);
       if (edges.length < 2) continue;
@@ -362,7 +378,7 @@ renderer.on("clickNode", ({ node }) => {
     }
   }
 
-  // ---- Simulation (fixed step with speed multiplier)
+  // ---- Simulation (fixed step)
   const baseDt = 1 / 60;
 
   function tick(now) {
@@ -397,31 +413,33 @@ renderer.on("clickNode", ({ node }) => {
   function step(dt) {
     const { beta, recover, pulseDecay, edgePulseDecay } = currentBehavior();
 
-    // Global “dial” to keep spread readable across variants.
-    const spread = (contained ? beta * 0.35 : beta) * 0.32;
+    // Normalize by density so variants feel consistent:
+    // contained reduces spread further
+    const baseSpread = (contained ? beta * 0.45 : beta) * degreeScale;
 
-    const maxNewInfections = 180; // lower global cap
+    // Cap new infections per step relative to N (prevents “instant full infection” on dense graphs)
+    const maxNewInfections = Math.max(40, Math.floor(graph.order * 0.04)); // ~4% per step cap
+
     const newly = [];
 
     graph.forEachNode((n, a) => {
       if (a.state !== "I") return;
       if (newly.length >= maxNewInfections) return;
 
-      let infectedThisStep = 0;
-      const perNodeCap = 2; // prevents hub nodes from exploding the sim
+      const deg = Math.max(1, graph.degree(n));
+      // Hub damping: infected hubs spread less per-neighbor (keeps it cinematic instead of explosive)
+      const hubDamp = 1 / Math.sqrt(deg);
+
+      const localSpread = baseSpread * hubDamp;
 
       graph.forEachNeighbor(n, (m, am) => {
         if (newly.length >= maxNewInfections) return;
-        if (infectedThisStep >= perNodeCap) return;
         if (am.state !== "S") return;
 
         const resist = am.resistance ?? 0;
-        const effective = spread * (1 - resist);
+        const effective = localSpread * (1 - resist);
 
-        if (Math.random() < effective * dt) {
-          newly.push([n, m]);
-          infectedThisStep += 1;
-        }
+        if (Math.random() < effective * dt) newly.push([n, m]);
       });
     });
 
@@ -491,7 +509,7 @@ renderer.on("clickNode", ({ node }) => {
     await loadVariant(idx);
   };
 
-  // init + start loop
+  // init + loop
   await loadVariant(0);
   if (!loopStarted) {
     loopStarted = true;
