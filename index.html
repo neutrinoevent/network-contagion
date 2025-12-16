@@ -263,15 +263,19 @@
       labelRenderedSizeThreshold: 9999
     });
 
-    renderer.on("clickNode", ({ node }) => {
-      const a = graph.getNodeAttributes(node);
-      const cam = renderer.getCamera();
+renderer.on("clickNode", ({ node }) => {
+  const a = graph.getNodeAttributes(node);
+  const cam = renderer.getCamera();
+  const { ratio } = cam.getState();
 
-      // only pass camera fields (prevents weird jumps)
-      cam.animate({ x: a.x, y: a.y, ratio: Math.min(cam.ratio, 2.2) }, { duration: 420 });
+  cam.animate(
+    { x: a.x, y: a.y, ratio },
+    { duration: 420, absolute: true }
+  );
 
-      inject(node);
-    });
+  inject(node);
+});
+
 
     lastFrame = performance.now();
     accumulator = 0;
