@@ -64,7 +64,7 @@
   <div id="topbar">
     <div>
       <div id="title">Network Contagion</div>
-      <div id="hint">Tap nodes to inject • swipe left/right to change topology • pinch to change speed</div>
+      <div id="hint">Tap nodes to inject • pinch to change speed</div>
     </div>
     <div id="controls">
       <select id="variant" aria-label="Network variant"></select>
@@ -98,15 +98,16 @@
     hot:   "#ff3b7a",
     warm:  "#ffb000",
     safe:  "#22e3a2",
-    edge:  "rgba(180,190,255,0.14)",
-    edgeHot: "rgba(255,59,122,0.85)"
+    edge:  "rgba(180,190,255,0.14)"
   };
 
+  // Tuned down betas for “readable” spread on mobile.
+  // (You can still speed up via pinch-to-speed.)
   const BEHAVIORS = {
-    viral: { beta: 0.85, recover: 2.3, pulseDecay: 1.8, edgePulseDecay: 2.4 },
-    meme:  { beta: 0.55, recover: 5.0, pulseDecay: 1.1, edgePulseDecay: 2.0 },
-    panic: { beta: 1.15, recover: 3.0, pulseDecay: 2.2, edgePulseDecay: 2.8 },
-    trust: { beta: 0.35, recover: 7.5, pulseDecay: 0.9, edgePulseDecay: 1.6 }
+    viral: { beta: 0.70, recover: 2.6, pulseDecay: 1.7, edgePulseDecay: 2.2 },
+    meme:  { beta: 0.45, recover: 5.5, pulseDecay: 1.05, edgePulseDecay: 1.9 },
+    panic: { beta: 0.95, recover: 3.2, pulseDecay: 2.0, edgePulseDecay: 2.6 },
+    trust: { beta: 0.28, recover: 8.0, pulseDecay: 0.9, edgePulseDecay: 1.5 }
   };
 
   const container = document.getElementById("container");
@@ -131,7 +132,7 @@
   let lastFrame = performance.now();
   let accumulator = 0;
 
-  // animation loop control (prevents “dead loop after an exception”)
+  // animation loop control
   let rafId = null;
   let loopStarted = false;
   let loadingVariant = false;
@@ -160,6 +161,7 @@
     return BEHAVIORS[modeSel.value] ?? BEHAVIORS.viral;
   }
 
+  // Cheap edge “pulse” by alpha (no D3)
   function edgeColorFromPulse(p) {
     const a = Math.max(0, Math.min(1, p));
     if (a <= 0.001) return COLORS.edge;
@@ -198,7 +200,7 @@
       });
     });
     graph.forEachEdge((e) => {
-      graph.mergeEdgeAttributes(e, { pulse: 0, color: COLORS.edge });
+      graph.mergeEdgeAttributes(e, { pulse: 0, color: COLORS.edge, size: 1 });
     });
     contained = false;
     containBtn.textContent = "🛡️ Contain";
@@ -216,19 +218,12 @@
     const v = variants[idx];
     const data = await fetch(`./${v.file}`).then(r => r.json());
 
-    // Pause the simulation logic while we swap internals
     accumulator = 0;
 
-    // Kill old renderer safely
-    try {
-      if (renderer) renderer.kill();
-    } catch (e) {
-      // ignore
-    }
+    try { if (renderer) renderer.kill(); } catch (e) {}
     renderer = null;
     graph = null;
 
-    // Build new graph
     graph = new Graph();
 
     data.nodes.forEach(n => graph.addNode(n.key, {
@@ -247,7 +242,6 @@
     }));
 
     data.edges.forEach(e => {
-      // avoid duplicates / bad edges from generation
       if (!graph.hasNode(e.source) || !graph.hasNode(e.target)) return;
       if (graph.hasEdge(e.source, e.target) || graph.hasEdge(e.target, e.source)) return;
 
@@ -257,15 +251,11 @@
         pulse: 0,
         weight: e.weight ?? 1.0,
 
-        // IMPORTANT:
-        // Do NOT set edge attribute "type" here.
-        // Sigma treats it as a render-program key (e.g., "line", "arrow").
-        // Your JSON uses type values like "small_world" which crash Sigma.
+        // IMPORTANT: do not use "type" (Sigma treats it as a render-program key)
         kind: e.type ?? "structural"
       });
     });
 
-    // Create sigma
     renderer = new Sigma(graph, container, {
       renderLabels: false,
       allowInvalidContainer: false,
@@ -274,45 +264,22 @@
     });
 
     renderer.on("clickNode", ({ node }) => {
-      renderer.getCamera().animate(graph.getNodeAttributes(node), { duration: 420 });
+      const a = graph.getNodeAttributes(node);
+      const cam = renderer.getCamera();
+
+      // only pass camera fields (prevents weird jumps)
+      cam.animate({ x: a.x, y: a.y, ratio: Math.min(cam.ratio, 2.2) }, { duration: 420 });
+
       inject(node);
     });
 
-    // Reset timing so we don't get a huge dt spike
     lastFrame = performance.now();
     accumulator = 0;
 
-    // Instant wow
     inject();
 
     loadingVariant = false;
   }
-
-  // ---- Mobile swipe to change variant
-  let touchStartX = 0;
-  let touchStartY = 0;
-
-  container.addEventListener("touchstart", (e) => {
-    if (e.touches.length !== 1) return;
-    touchStartX = e.touches[0].clientX;
-    touchStartY = e.touches[0].clientY;
-  }, { passive: true });
-
-  container.addEventListener("touchend", async (e) => {
-    if (!touchStartX) return;
-    const endX = e.changedTouches[0].clientX;
-    const endY = e.changedTouches[0].clientY;
-    const dx = endX - touchStartX;
-    const dy = endY - touchStartY;
-    touchStartX = 0;
-
-    if (Math.abs(dx) > 60 && Math.abs(dy) < 70) {
-      const cur = Number(varSel.value);
-      const next = dx < 0 ? (cur + 1) % variants.length : (cur - 1 + variants.length) % variants.length;
-      varSel.value = String(next);
-      await loadVariant(next);
-    }
-  }, { passive: true });
 
   // ---- Pinch-to-speed (mobile)
   let pinchStartDist = null;
@@ -361,9 +328,9 @@
     if (!rewiringEnabled || !graph) return;
     rewireCooldown -= dt;
     if (rewireCooldown > 0) return;
-    rewireCooldown = 0.25; // only try rewiring 4x/sec
+    rewireCooldown = 0.30;
 
-    const maxRewires = 4;
+    const maxRewires = 3;
     let rewires = 0;
 
     const infected = [];
@@ -372,7 +339,7 @@
 
     for (let i = 0; i < infected.length && rewires < maxRewires; i++) {
       const n = infected[Math.floor(Math.random() * infected.length)];
-      if (Math.random() > 0.30) continue;
+      if (Math.random() > 0.28) continue;
 
       const edges = graph.edges(n);
       if (edges.length < 2) continue;
@@ -383,7 +350,7 @@
 
       const m = infected[Math.floor(Math.random() * infected.length)];
       if (n !== m && !graph.hasEdge(n, m) && !graph.hasEdge(m, n)) {
-        graph.addEdge(n, m, { color: "rgba(255,85,255,0.35)", size: 1, pulse: 0, weight: 1.0, kind: "adaptive" });
+        graph.addEdge(n, m, { color: "rgba(255,85,255,0.30)", size: 1, pulse: 0, weight: 1.0, kind: "adaptive" });
         rewires += 1;
       } else {
         graph.addEdge(ext[0], ext[1], { color: COLORS.edge, size: 1, pulse: 0, weight: 1.0, kind: "restored" });
@@ -395,7 +362,6 @@
   const baseDt = 1 / 60;
 
   function tick(now) {
-    // Always keep the loop alive, but don’t do work during swaps
     if (loadingVariant || !graph || !renderer) {
       rafId = requestAnimationFrame(tick);
       return;
@@ -418,7 +384,7 @@
       showError(
         "Simulation halted due to an error.\n\n" +
         String(e?.stack || e) +
-        "\n\nTip: refresh the page. If this persists, we’ll harden the failing section."
+        "\n\nTip: refresh the page."
       );
       rafId = requestAnimationFrame(tick);
     }
@@ -426,24 +392,31 @@
 
   function step(dt) {
     const { beta, recover, pulseDecay, edgePulseDecay } = currentBehavior();
-    const spread = contained ? beta * 0.45 : beta;
 
-    // Mobile-safety throttle: cap how many new infections can occur per step
-    const maxNewInfections = 220;
+    // Global “dial” to keep spread readable across variants.
+    const spread = (contained ? beta * 0.35 : beta) * 0.32;
 
+    const maxNewInfections = 180; // lower global cap
     const newly = [];
+
     graph.forEachNode((n, a) => {
       if (a.state !== "I") return;
       if (newly.length >= maxNewInfections) return;
 
+      let infectedThisStep = 0;
+      const perNodeCap = 2; // prevents hub nodes from exploding the sim
+
       graph.forEachNeighbor(n, (m, am) => {
         if (newly.length >= maxNewInfections) return;
+        if (infectedThisStep >= perNodeCap) return;
         if (am.state !== "S") return;
 
         const resist = am.resistance ?? 0;
         const effective = spread * (1 - resist);
+
         if (Math.random() < effective * dt) {
           newly.push([n, m]);
+          infectedThisStep += 1;
         }
       });
     });
