@@ -274,16 +274,15 @@
 
 renderer = new Sigma(graph, container, {
   renderLabels: false,
+  enableEdgeClickEvents: false,
+  enableNodeClickEvents: true,
   allowInvalidContainer: false,
   defaultEdgeColor: COLORS.edge,
-  labelRenderedSizeThreshold: 9999,
-
-  // Prevent “tap causes drift” from touch dragging/panning
-  enableCamera: false
+  labelRenderedSizeThreshold: 9999
 });
 
 
-    // FIX: camera jump — animate ONLY x,y (+ keep ratio), and do it after a refresh.
+// Tap nodes to inject (camera is disabled for mobile stability)
 renderer.on("clickNode", ({ node }) => {
   inject(node);
 });
