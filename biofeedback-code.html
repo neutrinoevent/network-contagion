@@ -82,6 +82,41 @@
       background: rgba(120,200,255,0.15);
       text-decoration: none;
     }
+    
+    /* Back to top button */
+    .back-to-top {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      width: 48px;
+      height: 48px;
+      border-radius: 24px;
+      background: rgba(120,200,255,0.15);
+      border: 1px solid rgba(120,200,255,0.3);
+      color: rgba(120,200,255,0.95);
+      font-size: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      z-index: 100;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .back-to-top.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+    .back-to-top:hover {
+      background: rgba(120,200,255,0.25);
+      transform: translateY(-2px);
+    }
+    .back-to-top:active {
+      transform: translateY(0);
+    }
   </style>
 </head>
 <body>
@@ -112,6 +147,9 @@
     </div>
   </div>
 
+  <!-- Back to top button -->
+  <button class="back-to-top" id="backToTop" aria-label="Back to top">↑</button>
+
   <script>
     // Fetch and display the .ino file
     fetch('./biofeedback_system.ino')
@@ -125,6 +163,26 @@
           'Error loading code. Please download the .ino file directly.';
         console.error('Error loading code:', error);
       });
+
+    // Back to top button functionality
+    const backToTopBtn = document.getElementById('backToTop');
+    
+    // Show/hide button based on scroll position
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 300) {
+        backToTopBtn.classList.add('visible');
+      } else {
+        backToTopBtn.classList.remove('visible');
+      }
+    });
+    
+    // Smooth scroll to top when clicked
+    backToTopBtn.addEventListener('click', () => {
+      window.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    });
   </script>
 </body>
 </html>
