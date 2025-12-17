@@ -57,20 +57,14 @@
     pre {
       margin: 0;
       padding: 20px;
-      font-family: 'Courier New', Consolas, Monaco, monospace;
+      font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Courier New', monospace;
       font-size: 13px;
-      line-height: 1.6;
-      color: rgba(233,236,255,0.88);
+      line-height: 1.65;
+      color: rgba(233,236,255,0.90);
       overflow-x: auto;
+      white-space: pre;
+      word-wrap: normal;
     }
-    
-    /* Syntax highlighting */
-    .comment { color: rgba(120,200,255,0.65); font-style: italic; }
-    .keyword { color: rgba(255,120,200,0.95); font-weight: 600; }
-    .string { color: rgba(120,255,170,0.95); }
-    .number { color: rgba(255,200,120,0.95); }
-    .function { color: rgba(200,180,255,0.95); }
-    .preprocessor { color: rgba(255,150,100,0.95); }
     
     .download-btn {
       display: inline-block;
@@ -123,24 +117,8 @@
     fetch('./biofeedback_system.ino')
       .then(response => response.text())
       .then(code => {
-        // Apply basic syntax highlighting
-        const highlighted = code
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          // Comments
-          .replace(/(\/\/.*$)/gm, '<span class="comment">$1</span>')
-          .replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="comment">$1</span>')
-          // Preprocessor directives
-          .replace(/^(#\s*\w+.*$)/gm, '<span class="preprocessor">$1</span>')
-          // Keywords
-          .replace(/\b(void|int|float|bool|const|unsigned|long|if|else|for|while|return|switch|case|break|continue|struct|true|false|HIGH|LOW)\b/g, '<span class="keyword">$1</span>')
-          // Strings
-          .replace(/(".*?")/g, '<span class="string">$1</span>')
-          // Numbers
-          .replace(/\b(\d+\.?\d*)\b/g, '<span class="number">$1</span>');
-        
-        document.getElementById('code-content').innerHTML = highlighted;
+        // Display code as-is with proper HTML escaping
+        document.getElementById('code-content').textContent = code;
       })
       .catch(error => {
         document.getElementById('code-content').textContent = 
