@@ -53,8 +53,22 @@
       margin: 6px 6px 0 0;
       white-space: nowrap;
     }
-    code { color: rgba(233,236,255,0.92); }
+    code { 
+      color: rgba(233,236,255,0.92);
+      background: rgba(255,255,255,0.08);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.92em;
+    }
     .muted { color: rgba(233,236,255,0.60); }
+    .highlight { color: rgba(120,200,255,0.95); font-weight: 600; }
+    .callout {
+      background: rgba(120,200,255,0.08);
+      border-left: 3px solid rgba(120,200,255,0.6);
+      padding: 12px 14px;
+      margin: 12px 0;
+      border-radius: 6px;
+    }
   </style>
 </head>
 <body>
@@ -69,98 +83,184 @@
   <div class="wrap">
 
     <div class="card">
-      <h1>What this is</h1>
+      <h1>Project Overview</h1>
       <p>
-        This is a small interactive demo that visualizes how “something” can spread across a network.
-        Depending on the mode, you can interpret it as an epidemic, information diffusion, cascading failure,
-        or even attacker / defender dynamics in a networked system.
+        This is an interactive WebGL simulation demonstrating how processes spread through networked systems.
+        The same underlying mathematical framework can model epidemics (SIR dynamics), information cascades,
+        systemic failures, or adversarial propagation—depending on how you interpret the state transitions.
       </p>
-      <p class="muted" style="margin-bottom:0;">
-        The goal here isn’t to claim a perfect real-world model—it's to show clear systems thinking,
-        readable visuals, and a working simulation that’s easy to extend.
+      <p>
+        This project demonstrates technical fluency across several domains: complex systems modeling,
+        graph theory and network science, real-time WebGL rendering, and interactive data visualization.
+        It's designed to be both visually compelling and algorithmically substantive.
       </p>
 
       <div>
-        <span class="pill">Graph theory</span>
-        <span class="pill">Complex systems</span>
-        <span class="pill">Simulation</span>
-        <span class="pill">WebGL visualization</span>
+        <span class="pill">Graph theory & network science</span>
+        <span class="pill">Stochastic simulation</span>
+        <span class="pill">WebGL / GPU rendering</span>
+        <span class="pill">Interactive visualization</span>
       </div>
     </div>
 
     <div class="card">
-      <h2>The basic idea (plain language)</h2>
+      <h2>Technical Mechanics</h2>
+      
+      <p><strong>State Machine & SIR Dynamics</strong></p>
+      <p>
+        Each node operates as a finite state automaton with four states: <span class="highlight">susceptible</span> (baseline),
+        <span class="highlight">infected</span> (active propagation), <span class="highlight">recovered</span> (temporary immunity),
+        and transitions governed by neighbor interactions. The core loop implements a discrete-time stochastic SIR-style model:
+      </p>
       <ul>
-        <li><b>Nodes</b> are agents (people, devices, accounts, sensors, etc.).</li>
-        <li><b>Edges</b> are pathways (contact, connectivity, communication, dependence).</li>
-        <li>Each node changes state over time based on neighbors and the selected mode.</li>
+        <li>Infection probability scales with infected neighbor count and edge weights</li>
+        <li>Recovery occurs after a state-dependent dwell time with gaussian noise</li>
+        <li>Temporary immunity prevents immediate reinfection (recovery → susceptible transition)</li>
+        <li>Optional "containment" mode reduces transmission probability (network segmentation / rate limiting)</li>
+        <li>Optional "rewire" mode allows limited topological adaptation (simplified model of evasion or rerouting)</li>
+      </ul>
+
+      <p><strong>Graph Generation & Topology</strong></p>
+      <p>
+        The simulation includes six distinct network families, each with different structural properties that dramatically
+        affect spreading dynamics:
+      </p>
+      <ul>
+        <li><code>small_world</code> — Watts-Strogatz model: high clustering + low path length, realistic for social networks</li>
+        <li><code>scale_free</code> — Barabási-Albert model: power-law degree distribution, vulnerable to targeted hub removal</li>
+        <li><code>community</code> — Stochastic block model: dense intra-community edges, sparse bridges between groups</li>
+        <li><code>spatial</code> — Random geometric graph: proximity-based connectivity, models physical/geographic constraints</li>
+        <li><code>grid</code> — 2D lattice: regular structure, slow but predictable spreading patterns</li>
+        <li><code>hub_spoke</code> — Star graph with additional chords: extreme centralization, single point of failure</li>
       </ul>
       <p>
-        Under the hood it’s a lightweight state machine inspired by SIR-style contagion models:
-        susceptible → infected → recovered (with temporary resistance).
+        Graphs are generated using <code>networkx</code> with deterministic seeds, then laid out using force-directed spring algorithms
+        (<code>nx.spring_layout</code>). Node centrality (betweenness) is pre-computed to inform visual sizing and strategic importance.
       </p>
+
+      <p><strong>Rendering & Performance</strong></p>
+      <p>
+        The visualization uses <code>sigma.js</code> (WebGL renderer) with <code>graphology</code> for graph data structures.
+        This allows smooth 60 FPS rendering of networks with 200–300 nodes. State changes trigger color interpolation
+        and edge "pulse" animations to visualize transmission events in real-time. The renderer handles pan, zoom, and
+        node interaction without performance degradation.
+      </p>
+
+      <div class="callout">
+        <strong>Why this matters:</strong> Many network simulations use toy graphs or abstract visualizations.
+        This project uses realistic network topologies, implements actual epidemic models, and renders everything
+        interactively in the browser. It's a full-stack demonstration: Python graph generation → JSON data → 
+        JavaScript simulation engine → GPU-accelerated rendering.
+      </div>
     </div>
 
     <div class="card">
-      <h2>How to read the visualization</h2>
+      <h2>Controls & Interaction</h2>
       <ul>
-        <li><span style="color:#6f7cff; font-weight:700;">Blue</span>: susceptible / baseline</li>
-        <li><span style="color:#ff3b7a; font-weight:700;">Pink</span> → <span style="color:#ffb000; font-weight:700;">Amber</span>: infected (fresh → older)</li>
-        <li><span style="color:#22e3a2; font-weight:700;">Green</span>: recovered / temporarily resistant</li>
-        <li>Edges briefly “pulse” when a transmission event occurs (a visible pathway trace).</li>
+        <li><strong>Tap a node</strong> — Inject infection at that specific node (localized seeding)</li>
+        <li><strong>Inject</strong> — Inject at random node (stochastic seeding)</li>
+        <li><strong>Contain</strong> — Reduce transmission probability across all edges (intervention mode)</li>
+        <li><strong>Rewire</strong> — Allow limited adaptive edge rewiring (toy model of network adaptation)</li>
+        <li><strong>Reset</strong> — Return all nodes to susceptible state</li>
+        <li><strong>Speed</strong> — Pinch gesture (mobile) or Ctrl+wheel (desktop) to adjust simulation rate</li>
       </ul>
+      <p>
+        The visualization updates in discrete time steps, but animation interpolation creates the illusion of continuous
+        state evolution. Edge pulses fade over several frames to show directional transmission pathways.
+      </p>
     </div>
 
     <div class="card">
-      <h2>Controls</h2>
+      <h2>Visual Design</h2>
       <ul>
-        <li><b>Tap a node</b>: inject at that node (start a local event)</li>
-        <li><b>Inject</b>: inject at a random node</li>
-        <li><b>Contain</b>: reduces spread (think throttling, segmentation, quarantine)</li>
-        <li><b>Rewire</b>: allows limited adaptive connection changes (toy model of rerouting/evasion)</li>
-        <li><b>Reset</b>: return to baseline state</li>
-        <li><b>Speed</b>: pinch (mobile) / ctrl+wheel (desktop) adjusts simulation speed</li>
+        <li><span style="color:#6f7cff; font-weight:700;">Blue</span> — Susceptible / baseline state</li>
+        <li><span style="color:#ff3b7a; font-weight:700;">Pink</span> → <span style="color:#ffb000; font-weight:700;">Amber</span> — Infected (fresh → older infections, color shift over time)</li>
+        <li><span style="color:#22e3a2; font-weight:700;">Green</span> — Recovered / temporarily immune</li>
+        <li>Edges briefly "pulse" when transmission occurs (white glow along edge path)</li>
       </ul>
-    </div>
-
-    <div class="card">
-      <h2>Why multiple network variants</h2>
       <p>
-        The same rules can look totally different depending on topology:
-        grid-like networks, small-world networks, and scale-free networks produce different cascade patterns.
-        This demo includes multiple generated variants so it doesn’t feel “canned.”
+        Node sizes scale with betweenness centrality—more central nodes are visually larger, making structural
+        importance immediately apparent. Color transitions use smooth interpolation rather than hard state changes.
       </p>
     </div>
 
     <div class="card">
-      <h2>About me</h2>
+      <h2>About Me</h2>
       <p>
-        I’m Alexander Nichols — a Physics and Applied Mathematics student at Old Dominion University.
-        My recent research work has been in experimental physics / biomedical instrumentation and signal processing
-        (e.g., GSR + PPG sensing with real-time processing and validation).
+        I'm <strong>Alexander Nichols</strong>—a Physics major, Track A (research concentration) with a minor in 
+        Mathematics (Applied Mathematics) at Old Dominion University.
       </p>
       <p>
-        I also have a strong background in systems security and network architecture, which is useful in contexts like
-        protecting research infrastructure and IoT-enabled instrumentation.
+        This past semester (Fall 2025) I earned a 3.90 GPA in upper-level physics and math courses: Calculus III, 
+        Modern Physics, Mathematical Methods of Physics, and Experimental Physics—all A's. I'm focused on building 
+        research experience and technical skills at the intersection of experimental physics and computation.
       </p>
+
+      <p><strong>Current Research</strong></p>
+      <p>
+        My recent work has been in experimental physics and biomedical instrumentation, specifically developing a
+        multi-modal biofeedback system for stress reduction. This involved:
+      </p>
+      <ul>
+        <li>Integrating galvanic skin response (GSR) and photoplethysmography (PPG) sensors</li>
+        <li>Real-time signal processing: adaptive filtering, artifact removal, zone-based state classification</li>
+        <li>Embedded systems programming (Arduino/C++, Python)</li>
+        <li>Human-subject experimental protocol design and validation</li>
+        <li>Multi-modal feedback mechanisms (visual, audio, haptic)</li>
+      </ul>
+      <p>
+        I'm interested in instrumentation physics, autonomic nervous system monitoring, signal processing,
+        and the intersection of physics and computational methods. Currently enrolled in An Introduction to 
+        Probability and Statistics (STAT 330), Ordinary Differential Equations (MATH 307), Analytical Mechanics 
+        (PHYS 319), and Methods of Experimental Physics (PHYS 413) for Spring 2026.
+      </p>
+
+      <p><strong>Technical Background</strong></p>
+      <p>
+        Beyond physics research, I have a strong background in systems security and network architecture
+        (Top 0.05% globally on HackTheBox). This isn't separate from my research—understanding attack vectors,
+        network protocols, and system hardening is increasingly important for protecting research infrastructure,
+        IoT-enabled instrumentation, and data integrity in experimental setups.
+      </p>
+      <p>
+        Skills: Python, C/C++, Arduino/embedded systems, MATLAB, circuit design and prototyping, analog/digital signal processing,
+        Linux/Unix systems, network protocols, data analysis and visualization, experimental design.
+      </p>
+
+      <p><strong>Why This Project</strong></p>
+      <p>
+        This network contagion simulation demonstrates several things simultaneously: comfort with graph theory and algorithms,
+        ability to implement non-trivial mathematical models, proficiency in modern web technologies (WebGL, real-time rendering),
+        and attention to visual design and user experience. It's also directly relevant to my broader interests—complex systems,
+        network dynamics, and computational modeling show up everywhere from epidemiology to neural networks to infrastructure resilience.
+      </p>
+
+      <div class="callout">
+        <p style="margin: 0;">
+          <strong>Looking ahead:</strong> I'm seeking summer 2026 research opportunities in experimental physics,
+          biomedical engineering, computational physics, or related fields. I want to work on problems that combine
+          instrumentation, signal processing, and systems thinking. If you're working on something interesting and
+          think I'd be a good fit, I'd love to talk.
+        </p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Implementation Details</h2>
+      <ul>
+        <li><code>graphology</code> — In-memory graph data structure (adjacency lists, attribute storage)</li>
+        <li><code>sigma.js</code> — WebGL renderer for large-scale graph visualization</li>
+        <li><code>networkx</code> (Python) — Graph generation and analysis (betweenness centrality, layout algorithms)</li>
+        <li><code>numpy</code> — Numerical operations and random sampling</li>
+        <li>Static hosting via GitHub Pages — Zero backend, pure client-side simulation</li>
+      </ul>
       <p class="muted" style="margin-bottom:0;">
-        This project is one of several “public demos” I use to show practical technical fluency: simulation logic,
-        interactive visualization, and clean deployment.
+        Repository: <a href="https://github.com/neutrinoevent/network-contagion">github.com/neutrinoevent/network-contagion</a>
       </p>
     </div>
 
     <div class="card">
-      <h2>Tech stack</h2>
-      <ul>
-        <li><code>graphology</code> for graph data structures</li>
-        <li><code>sigma.js</code> (WebGL) for fast rendering</li>
-        <li>Static hosting via GitHub Pages</li>
-      </ul>
-      <p class="muted" style="margin-bottom:0;">
-        Repo: <a href="https://github.com/neutrinoevent/network-contagion">github.com/neutrinoevent/network-contagion</a>
-      </p>
-    </div>
-
-  </div>
-</body>
-</html>
+      <h2>Contact</h2>
+      <p>
+        Email: <a href="/cdn-cgi/l/email-protection#5f3e31363c3730332c1f303b2a713a3b2a"><span class="__cf_email__" data-cfemail="5637383f353e393a251639322378333223">[email&#160;protected]</span></a><br>
+        LinkedIn: <a href="http
