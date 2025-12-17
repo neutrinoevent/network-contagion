@@ -272,12 +272,16 @@
     degreeScale = 6 / Math.max(1, avgDegree);
     degreeScale = Math.max(0.35, Math.min(1.35, degreeScale));
 
-    renderer = new Sigma(graph, container, {
-      renderLabels: false,
-      allowInvalidContainer: false,
-      defaultEdgeColor: COLORS.edge,
-      labelRenderedSizeThreshold: 9999
-    });
+renderer = new Sigma(graph, container, {
+  renderLabels: false,
+  allowInvalidContainer: false,
+  defaultEdgeColor: COLORS.edge,
+  labelRenderedSizeThreshold: 9999,
+
+  // Prevent “tap causes drift” from touch dragging/panning
+  enableCamera: false
+});
+
 
     // FIX: camera jump — animate ONLY x,y (+ keep ratio), and do it after a refresh.
 renderer.on("clickNode", ({ node }) => {
@@ -415,26 +419,32 @@ renderer.on("clickNode", ({ node }) => {
 
     const newly = [];
 
-    graph.forEachNode((n, a) => {
-      if (a.state !== "I") return;
-      if (newly.length >= maxNewInfections) return;
+graph.forEachNode((n, a) => {
+  if (a.state !== "I") return;
+  if (newly.length >= maxNewInfections) return;
 
-      const deg = Math.max(1, graph.degree(n));
-      // Hub damping: infected hubs spread less per-neighbor (keeps it cinematic instead of explosive)
-      const hubDamp = 1 / Math.sqrt(deg);
+  const deg = Math.max(1, graph.degree(n));
+  const hubDamp = 1 / Math.sqrt(deg);
+  const localSpread = baseSpread * hubDamp;
 
-      const localSpread = baseSpread * hubDamp;
+  let infectedThisStep = 0;
+  const perNodeCap = 2; // <- big stabilizer across variants
 
-      graph.forEachNeighbor(n, (m, am) => {
-        if (newly.length >= maxNewInfections) return;
-        if (am.state !== "S") return;
+  graph.forEachNeighbor(n, (m, am) => {
+    if (newly.length >= maxNewInfections) return;
+    if (infectedThisStep >= perNodeCap) return;
+    if (am.state !== "S") return;
 
-        const resist = am.resistance ?? 0;
-        const effective = localSpread * (1 - resist);
+    const resist = am.resistance ?? 0;
+    const effective = localSpread * (1 - resist);
 
-        if (Math.random() < effective * dt) newly.push([n, m]);
-      });
-    });
+    if (Math.random() < effective * dt) {
+      newly.push([n, m]);
+      infectedThisStep += 1;
+    }
+  });
+});
+
 
     newly.forEach(([src, dst]) => {
       graph.mergeNodeAttributes(dst, { state:"I", t:0, pulse:1.0 });
