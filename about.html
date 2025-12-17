@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>About • Network Contagion</title>
+  <style>
+    html, body {
+      margin:0;
+      background:#05060a;
+      color: rgba(233,236,255,0.92);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+    }
+    .top {
+      display:flex; align-items:center; justify-content:space-between; gap: 12px;
+      padding: 14px 14px; position: sticky; top: 0;
+      background: linear-gradient(180deg, rgba(20,22,35,0.95), rgba(10,10,18,0.55));
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      backdrop-filter: blur(12px);
+      z-index: 10;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 20px 16px 44px; }
+    .card {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 18px;
+      padding: 16px 16px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+      margin: 12px 0;
+    }
+    h1 { font-size: 22px; margin: 0 0 8px; letter-spacing: .2px; }
+    h2 { font-size: 15px; margin: 0 0 8px; color: rgba(233,236,255,0.85); }
+    p, li { line-height: 1.55; color: rgba(233,236,255,0.78); }
+    a { color: rgba(120,200,255,0.95); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .btn {
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.06);
+      color: rgba(233,236,255,0.92);
+      padding: 10px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:hover { background: rgba(255,255,255,0.10); }
+    .pill {
+      display:inline-block; padding: 8px 10px; border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.05);
+      font-size: 12px; color: rgba(233,236,255,0.85);
+      margin: 6px 6px 0 0;
+      white-space: nowrap;
+    }
+    code { color: rgba(233,236,255,0.92); }
+    .muted { color: rgba(233,236,255,0.60); }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div>
+      <div style="font-weight:760;">Network Contagion</div>
+      <div class="muted" style="font-size:12px;">Interactive network simulation • WebGL</div>
+    </div>
+    <button class="btn" onclick="location.href='./index.html'">← Back to demo</button>
+  </div>
+
+  <div class="wrap">
+
+    <div class="card">
+      <h1>What this is</h1>
+      <p>
+        This is a small interactive demo that visualizes how “something” can spread across a network.
+        Depending on the mode, you can interpret it as an epidemic, information diffusion, cascading failure,
+        or even attacker / defender dynamics in a networked system.
+      </p>
+      <p class="muted" style="margin-bottom:0;">
+        The goal here isn’t to claim a perfect real-world model—it's to show clear systems thinking,
+        readable visuals, and a working simulation that’s easy to extend.
+      </p>
+
+      <div>
+        <span class="pill">Graph theory</span>
+        <span class="pill">Complex systems</span>
+        <span class="pill">Simulation</span>
+        <span class="pill">WebGL visualization</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>The basic idea (plain language)</h2>
+      <ul>
+        <li><b>Nodes</b> are agents (people, devices, accounts, sensors, etc.).</li>
+        <li><b>Edges</b> are pathways (contact, connectivity, communication, dependence).</li>
+        <li>Each node changes state over time based on neighbors and the selected mode.</li>
+      </ul>
+      <p>
+        Under the hood it’s a lightweight state machine inspired by SIR-style contagion models:
+        susceptible → infected → recovered (with temporary resistance).
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>How to read the visualization</h2>
+      <ul>
+        <li><span style="color:#6f7cff; font-weight:700;">Blue</span>: susceptible / baseline</li>
+        <li><span style="color:#ff3b7a; font-weight:700;">Pink</span> → <span style="color:#ffb000; font-weight:700;">Amber</span>: infected (fresh → older)</li>
+        <li><span style="color:#22e3a2; font-weight:700;">Green</span>: recovered / temporarily resistant</li>
+        <li>Edges briefly “pulse” when a transmission event occurs (a visible pathway trace).</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Controls</h2>
+      <ul>
+        <li><b>Tap a node</b>: inject at that node (start a local event)</li>
+        <li><b>Inject</b>: inject at a random node</li>
+        <li><b>Contain</b>: reduces spread (think throttling, segmentation, quarantine)</li>
+        <li><b>Rewire</b>: allows limited adaptive connection changes (toy model of rerouting/evasion)</li>
+        <li><b>Reset</b>: return to baseline state</li>
+        <li><b>Speed</b>: pinch (mobile) / ctrl+wheel (desktop) adjusts simulation speed</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Why multiple network variants</h2>
+      <p>
+        The same rules can look totally different depending on topology:
+        grid-like networks, small-world networks, and scale-free networks produce different cascade patterns.
+        This demo includes multiple generated variants so it doesn’t feel “canned.”
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>About me</h2>
+      <p>
+        I’m Alexander Nichols — a Physics and Applied Mathematics student at Old Dominion University.
+        My recent research work has been in experimental physics / biomedical instrumentation and signal processing
+        (e.g., GSR + PPG sensing with real-time processing and validation).
+      </p>
+      <p>
+        I also have a strong background in systems security and network architecture, which is useful in contexts like
+        protecting research infrastructure and IoT-enabled instrumentation.
+      </p>
+      <p class="muted" style="margin-bottom:0;">
+        This project is one of several “public demos” I use to show practical technical fluency: simulation logic,
+        interactive visualization, and clean deployment.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Tech stack</h2>
+      <ul>
+        <li><code>graphology</code> for graph data structures</li>
+        <li><code>sigma.js</code> (WebGL) for fast rendering</li>
+        <li>Static hosting via GitHub Pages</li>
+      </ul>
+      <p class="muted" style="margin-bottom:0;">
+        Repo: <a href="https://github.com/neutrinoevent/network-contagion">github.com/neutrinoevent/network-contagion</a>
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>
