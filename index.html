@@ -31,6 +31,53 @@
     }
     button { cursor: pointer; }
     button:hover { background: rgba(255,255,255,0.10); }
+    
+    .speed-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.06);
+      backdrop-filter: blur(8px);
+    }
+    
+    .speed-label {
+      color: rgba(233,236,255,0.92);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    
+    #speedSlider {
+      width: 100px;
+      height: 4px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: rgba(255,255,255,0.15);
+      outline: none;
+      border-radius: 2px;
+    }
+    
+    #speedSlider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      background: rgba(120,200,255,0.95);
+      cursor: pointer;
+      border-radius: 50%;
+    }
+    
+    #speedSlider::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      background: rgba(120,200,255,0.95);
+      cursor: pointer;
+      border-radius: 50%;
+      border: none;
+    }
+    
     #container { flex:1; position: relative; min-height: 200px; }
     #badge {
       position: absolute; left: 12px; bottom: 12px;
@@ -64,7 +111,7 @@
   <div id="topbar">
     <div>
       <div id="title">Network Contagion</div>
-      <div id="hint">Tap nodes to inject • pinch / ctrl+wheel to change speed</div>
+      <div id="hint">Tap nodes to inject • drag to pan • scroll to zoom</div>
     </div>
     <div id="controls">
       <select id="variant" aria-label="Network variant"></select>
@@ -75,6 +122,11 @@
         <option value="panic">Panic</option>
         <option value="trust">Trust</option>
       </select>
+
+      <div class="speed-control">
+        <span class="speed-label" id="speedLabel">Speed: 1.0×</span>
+        <input type="range" id="speedSlider" min="0.2" max="3.0" step="0.1" value="1.0" aria-label="Simulation speed">
+      </div>
 
       <button id="inject">⚡ Inject</button>
       <button id="contain">🛡️ Contain</button>
@@ -120,6 +172,8 @@
   const rewireBtn  = document.getElementById("rewire");
   const modeSel    = document.getElementById("mode");
   const varSel     = document.getElementById("variant");
+  const speedSlider = document.getElementById("speedSlider");
+  const speedLabel = document.getElementById("speedLabel");
 
   let graph = null;
   let renderer = null;
@@ -150,7 +204,9 @@
   }
 
   function updateBadge() {
-    badge.textContent = `Speed: ${simulationSpeed.toFixed(1)}×`;
+    const speedText = `Speed: ${simulationSpeed.toFixed(1)}×`;
+    badge.textContent = speedText;
+    speedLabel.textContent = speedText;
   }
 
   function currentBehavior() {
@@ -205,6 +261,12 @@
     // rewiringEnabled = false;
     // rewireBtn.textContent = "🧬 Rewire: OFF";
   }
+
+  // ---- Speed slider control
+  speedSlider.addEventListener("input", (e) => {
+    simulationSpeed = parseFloat(e.target.value);
+    updateBadge();
+  });
 
   // ---- Variants
   const manifest = await fetch("./manifest.json").then(r => r.json());
@@ -268,73 +330,33 @@
     graph.forEachNode((n) => { degSum += graph.degree(n); });
     avgDegree = degSum / Math.max(1, graph.order);
 
-    // We target “readable” spread around avgDegree ~ 6.
+    // We target "readable" spread around avgDegree ~ 6.
     // Dense graphs => scale down beta, sparse graphs => scale up a bit (clamped).
     degreeScale = 6 / Math.max(1, avgDegree);
     degreeScale = Math.max(0.35, Math.min(1.35, degreeScale));
 
-renderer = new Sigma(graph, container, {
-  renderLabels: false,
-  enableEdgeClickEvents: false,
-  enableNodeClickEvents: true,
-  allowInvalidContainer: false,
-  defaultEdgeColor: COLORS.edge,
-  labelRenderedSizeThreshold: 9999
-});
+    renderer = new Sigma(graph, container, {
+      renderLabels: false,
+      enableEdgeClickEvents: false,
+      enableNodeClickEvents: true,
+      allowInvalidContainer: false,
+      defaultEdgeColor: COLORS.edge,
+      labelRenderedSizeThreshold: 9999
+    });
 
-
-// Tap nodes to inject (camera is disabled for mobile stability)
-renderer.on("clickNode", ({ node }) => {
-  inject(node);
-});
-
+    // Tap nodes to inject
+    renderer.on("clickNode", ({ node }) => {
+      inject(node);
+    });
 
     lastFrame = performance.now();
     accumulator = 0;
 
     resetAll();
-    inject(); // instant “wow” seed
+    inject(); // instant "wow" seed
 
     loadingVariant = false;
   }
-
-  // ---- Pinch-to-speed (mobile)
-  let pinchStartDist = null;
-  let pinchStartSpeed = 1.0;
-
-  function dist2(t0, t1) {
-    const dx = t0.clientX - t1.clientX;
-    const dy = t0.clientY - t1.clientY;
-    return Math.sqrt(dx*dx + dy*dy);
-  }
-
-  container.addEventListener("touchstart", (e) => {
-    if (e.touches.length === 2) {
-      pinchStartDist = dist2(e.touches[0], e.touches[1]);
-      pinchStartSpeed = simulationSpeed;
-    }
-  }, { passive: true });
-
-  container.addEventListener("touchmove", (e) => {
-    if (e.touches.length === 2 && pinchStartDist) {
-      const d = dist2(e.touches[0], e.touches[1]);
-      const ratio = d / pinchStartDist;
-      simulationSpeed = Math.max(0.2, Math.min(3.0, pinchStartSpeed * ratio));
-      updateBadge();
-    }
-  }, { passive: true });
-
-  container.addEventListener("touchend", (e) => {
-    if (e.touches.length < 2) pinchStartDist = null;
-  }, { passive: true });
-
-  // ---- ctrl+wheel (desktop pinch)
-  container.addEventListener("wheel", (e) => {
-    if (!e.ctrlKey) return;
-    e.preventDefault();
-    simulationSpeed = Math.max(0.2, Math.min(3.0, simulationSpeed + (-e.deltaY) * 0.002));
-    updateBadge();
-  }, { passive: false });
 
   updateBadge();
 
@@ -414,37 +436,36 @@ renderer.on("clickNode", ({ node }) => {
     // contained reduces spread further
     const baseSpread = (contained ? beta * 0.45 : beta) * degreeScale;
 
-    // Cap new infections per step relative to N (prevents “instant full infection” on dense graphs)
+    // Cap new infections per step relative to N (prevents "instant full infection" on dense graphs)
     const maxNewInfections = Math.max(40, Math.floor(graph.order * 0.04)); // ~4% per step cap
 
     const newly = [];
 
-graph.forEachNode((n, a) => {
-  if (a.state !== "I") return;
-  if (newly.length >= maxNewInfections) return;
+    graph.forEachNode((n, a) => {
+      if (a.state !== "I") return;
+      if (newly.length >= maxNewInfections) return;
 
-  const deg = Math.max(1, graph.degree(n));
-  const hubDamp = 1 / Math.sqrt(deg);
-  const localSpread = baseSpread * hubDamp;
+      const deg = Math.max(1, graph.degree(n));
+      const hubDamp = 1 / Math.sqrt(deg);
+      const localSpread = baseSpread * hubDamp;
 
-  let infectedThisStep = 0;
-  const perNodeCap = 2; // <- big stabilizer across variants
+      let infectedThisStep = 0;
+      const perNodeCap = 2; // <- big stabilizer across variants
 
-  graph.forEachNeighbor(n, (m, am) => {
-    if (newly.length >= maxNewInfections) return;
-    if (infectedThisStep >= perNodeCap) return;
-    if (am.state !== "S") return;
+      graph.forEachNeighbor(n, (m, am) => {
+        if (newly.length >= maxNewInfections) return;
+        if (infectedThisStep >= perNodeCap) return;
+        if (am.state !== "S") return;
 
-    const resist = am.resistance ?? 0;
-    const effective = localSpread * (1 - resist);
+        const resist = am.resistance ?? 0;
+        const effective = localSpread * (1 - resist);
 
-    if (Math.random() < effective * dt) {
-      newly.push([n, m]);
-      infectedThisStep += 1;
-    }
-  });
-});
-
+        if (Math.random() < effective * dt) {
+          newly.push([n, m]);
+          infectedThisStep += 1;
+        }
+      });
+    });
 
     newly.forEach(([src, dst]) => {
       graph.mergeNodeAttributes(dst, { state:"I", t:0, pulse:1.0 });
