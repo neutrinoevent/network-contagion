@@ -158,11 +158,12 @@
       <h2>Controls & Interaction</h2>
       <ul>
         <li><strong>Tap a node</strong> — Inject infection at that specific node (localized seeding)</li>
+        <li><strong>Mode selector</strong> — Choose spreading behavior: Viral (fast spread, quick recovery), Meme (slow spread, long persistence), Panic (very fast spread, medium recovery), or Trust (very slow spread, highly persistent). Same network topology produces completely different dynamics based on transmission parameters.</li>
         <li><strong>Inject</strong> — Inject at random node (stochastic seeding)</li>
         <li><strong>Contain</strong> — Reduce transmission probability across all edges (intervention mode)</li>
         <li><strong>Rewire</strong> — Allow limited adaptive edge rewiring (toy model of network adaptation)</li>
         <li><strong>Reset</strong> — Return all nodes to susceptible state</li>
-        <li><strong>Speed</strong> — Pinch gesture (mobile) or Ctrl+wheel (desktop) to adjust simulation rate</li>
+        <li><strong>Speed slider</strong> — Adjust simulation speed from 0.2× to 3.0× without affecting zoom or pan</li>
       </ul>
       <p>
         The visualization updates in discrete time steps, but animation interpolation creates the illusion of continuous
