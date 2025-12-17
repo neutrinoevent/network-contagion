@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Biofeedback System Code • Alexander Nichols</title>
+  <style>
+    html, body {
+      margin:0;
+      background:#05060a;
+      color: rgba(233,236,255,0.92);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+    }
+    .top {
+      display:flex; align-items:center; justify-content:space-between; gap: 12px;
+      padding: 14px 14px; position: sticky; top: 0;
+      background: linear-gradient(180deg, rgba(20,22,35,0.95), rgba(10,10,18,0.55));
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      backdrop-filter: blur(12px);
+      z-index: 10;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 44px; }
+    .card {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 18px;
+      padding: 16px 16px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+      margin: 12px 0;
+    }
+    h1 { font-size: 22px; margin: 0 0 8px; letter-spacing: .2px; }
+    p { line-height: 1.55; color: rgba(233,236,255,0.78); }
+    a { color: rgba(120,200,255,0.95); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .btn {
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.06);
+      color: rgba(233,236,255,0.92);
+      padding: 10px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:hover { background: rgba(255,255,255,0.10); }
+    .muted { color: rgba(233,236,255,0.60); }
+    
+    /* Code display styling */
+    .code-container {
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      overflow-x: auto;
+      margin: 16px 0;
+    }
+    pre {
+      margin: 0;
+      padding: 20px;
+      font-family: 'Courier New', Consolas, Monaco, monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      color: rgba(233,236,255,0.88);
+      overflow-x: auto;
+    }
+    
+    /* Syntax highlighting */
+    .comment { color: rgba(120,200,255,0.65); font-style: italic; }
+    .keyword { color: rgba(255,120,200,0.95); font-weight: 600; }
+    .string { color: rgba(120,255,170,0.95); }
+    .number { color: rgba(255,200,120,0.95); }
+    .function { color: rgba(200,180,255,0.95); }
+    .preprocessor { color: rgba(255,150,100,0.95); }
+    
+    .download-btn {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 10px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(120,200,255,0.3);
+      background: rgba(120,200,255,0.08);
+      color: rgba(120,200,255,0.95);
+      font-size: 13px;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .download-btn:hover {
+      background: rgba(120,200,255,0.15);
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div>
+      <div style="font-weight:760;">Biofeedback System Source Code</div>
+      <div class="muted" style="font-size:12px;">Arduino C++ • Annotated</div>
+    </div>
+    <button class="btn" onclick="location.href='./about.html'">← Back to about</button>
+  </div>
+
+  <div class="wrap">
+    <div class="card">
+      <h1>Multi-Modal Biofeedback System v4</h1>
+      <p>
+        Complete Arduino source code with comprehensive documentation. This implementation integrates
+        galvanic skin response (GSR) and photoplethysmography (PPG) sensors with multi-modal feedback
+        (visual LED + auditory tone) for stress reduction training.
+      </p>
+      <p class="muted" style="font-size: 13px;">
+        Hardware: Arduino R4 WiFi • Pulse Sensor • Grove GSR Sensor • 4-LED array • Speaker
+      </p>
+      <a href="./biofeedback_system.ino" download class="download-btn">⬇ Download .ino file</a>
+    </div>
+
+    <div class="code-container">
+      <pre id="code-content">Loading source code...</pre>
+    </div>
+  </div>
+
+  <script>
+    // Fetch and display the .ino file
+    fetch('./biofeedback_system.ino')
+      .then(response => response.text())
+      .then(code => {
+        // Apply basic syntax highlighting
+        const highlighted = code
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          // Comments
+          .replace(/(\/\/.*$)/gm, '<span class="comment">$1</span>')
+          .replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="comment">$1</span>')
+          // Preprocessor directives
+          .replace(/^(#\s*\w+.*$)/gm, '<span class="preprocessor">$1</span>')
+          // Keywords
+          .replace(/\b(void|int|float|bool|const|unsigned|long|if|else|for|while|return|switch|case|break|continue|struct|true|false|HIGH|LOW)\b/g, '<span class="keyword">$1</span>')
+          // Strings
+          .replace(/(".*?")/g, '<span class="string">$1</span>')
+          // Numbers
+          .replace(/\b(\d+\.?\d*)\b/g, '<span class="number">$1</span>');
+        
+        document.getElementById('code-content').innerHTML = highlighted;
+      })
+      .catch(error => {
+        document.getElementById('code-content').textContent = 
+          'Error loading code. Please download the .ino file directly.';
+        console.error('Error loading code:', error);
+      });
+  </script>
+</body>
+</html>
